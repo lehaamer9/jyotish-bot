@@ -43,6 +43,8 @@ from jyotish_engine import (
     format_chart_summary,
     format_dasha_periods,
     get_current_dasha,
+    check_sade_sati,
+    detect_yogas,
 )
 from geo_helper import resolve_location
 from gemini_interpreter import GeminiInterpreter
@@ -50,11 +52,17 @@ from payment_helper import (
     send_chart_invoice,
     send_dasha_invoice,
     send_compat_invoice,
+    send_ask_invoice,
+    send_yoga_invoice,
+    send_bundle_invoice,
     precheckout_callback,
     PAYMENT_REQUIRED,
     PRICE_CHART_STARS,
     PRICE_DASHA_STARS,
     PRICE_COMPAT_STARS,
+    PRICE_ASK_STARS,
+    PRICE_YOGA_STARS,
+    PRICE_BUNDLE_STARS,
 )
 
 # Настройка логирования
@@ -77,6 +85,9 @@ logger = logging.getLogger(__name__)
     COMPAT_WAITING_TOB,
     COMPAT_WAITING_PLACE,
 ) = range(3, 6)
+
+# Состояние диалога для экспресс-вопроса /ask
+ASK_WAITING_QUESTION = 6
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4000
 
@@ -133,11 +144,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🪐 Рассчитывать точную натальную карту (Кундли D1, Лагна, дома, планеты, Шадбала)\n"
         "⏳ Вычислять периоды судьбы (*Вимшоттари Даша* на всю жизнь)\n"
         "💞 Анализировать совместимость партнёров (*Аштакута / 8 факторов любви*)\n"
-        "🤖 Формировать глубокие персональные разборы и упайи (гармонизации)\n\n"
+        "❓ Задавать вопросы ИИ-астрологу по своей карте\n"
+        "🔄 Проверять период Саде-Сати (транзит Сатурна)\n"
+        "🧘 Находить мощные йоги в натальной карте\n\n"
         "📌 *Команды бота:*\n"
         "👉 /chart — составить натальную карту\n"
         "👉 /dasha — периоды жизни (Вимшоттари Даша)\n"
         "👉 /compat — совместимость с партнёром\n"
+        "👉 /ask — задать вопрос ИИ-астрологу\n"
+        "👉 /sadesati — проверить Саде-Сати\n"
+        "👉 /yoga — найти йоги в карте\n"
         "👉 /prices — стоимость услуг в Звёздах Telegram (⭐️)\n"
         "👉 /mydata — посмотреть сохранённые данные\n"
         "👉 /reset — сбросить данные\n"
@@ -154,6 +170,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 /chart — Составление натальной карты (дата, время, город рождения).\n"
         "🔹 /dasha — Разбор планетных периодов Вимшоттари Даша.\n"
         "🔹 /compat — Синастрия и совместимость по 8 ведическим показателям.\n"
+        "🔹 /ask — Задать любой вопрос ИИ-астрологу по своей карте.\n"
+        "🔹 /sadesati — Проверить, идёт ли период Саде-Сати (транзит Сатурна).\n"
+        "🔹 /yoga — Найти мощные йоги (комбинации планет) в натальной карте.\n"
         "🔹 /prices — Тарифы на подробные ИИ-разборы (оплата в ⭐️ Telegram Stars).\n"
         "🔹 /mydata — Показывает введённые дату, время и координаты.\n"
         "🔹 /reset — Сброс сохранённых данных.\n"
@@ -173,6 +192,13 @@ async def prices_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • Текущая Маха-Даша и Антар-Даша, уроки периода, точки роста, предостережения.\n\n"
         f"💞 **Анализ совместимости (Аштакута):** `{PRICE_COMPAT_STARS} ⭐️`\n"
         "  • 8 факторов гармонии, сексуальное притяжение (Йони), ментальное согласие, кармические узлы.\n\n"
+        f"❓ **Экспресс-вопрос ИИ-астрологу:** `{PRICE_ASK_STARS} ⭐️`\n"
+        "  • Задай любой вопрос по своей натальной карте и получи персональный ответ.\n\n"
+        f"🧘 **Детектор йог + ИИ-трактовка:** `{PRICE_YOGA_STARS} ⭐️`\n"
+        "  • Раджа-йога, Гаджакешари, Будхадитья, Дхана, Панча Махапуруша + разбор от ИИ.\n\n"
+        f"🌟 **Бандл «Вся судьба 360°»:** `{PRICE_BUNDLE_STARS} ⭐️`\n"
+        "  • Натальная карта + Даша + Йоги + 1 вопрос — всё в одном со скидкой!\n\n"
+        "🆓 *Бесплатно:* базовые расчёты, /sadesati (Саде-Сати).\n\n"
         "✨ Оплата производится в 1 клик через официальные звёзды Telegram (Apple Pay / Google Pay / карты)."
     )
     await update.message.reply_text(text, parse_mode="Markdown")
@@ -528,6 +554,206 @@ async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
+# ===================== САДЕ-САТИ (БЕСПЛАТНО) =====================
+
+async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Проверка текущего статуса Саде-Сати (транзит Сатурна по Луне)."""
+    profile = context.user_data.get("natal_profile")
+    if not profile:
+        await update.message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart и введи данные рождения."
+        )
+        return
+
+    status_msg = await update.message.reply_text("🪐 Вычисляю положение транзитного Сатурна...")
+    try:
+        chart_data = profile["chart_data"]
+        result = check_sade_sati(chart_data)
+
+        if result["active"]:
+            phase_names = {
+                "rising": "🌅 Восходящая фаза (Сатурн в 12-м знаке от Луны)",
+                "peak": "🔥 Пиковая фаза (Сатурн в знаке Луны)",
+                "setting": "🌇 Нисходящая фаза (Сатурн во 2-м знаке от Луны)",
+            }
+            phase_text = phase_names.get(result["phase"], result["phase"])
+            text = (
+                "🪐 *Саде-Сати — АКТИВНА!*\n\n"
+                f"🌙 Твоя натальная Луна: *{result['natal_moon_sign']}*\n"
+                f"🪐 Транзитный Сатурн: *{result['saturn_sign']}*\n\n"
+                f"📍 Фаза: {phase_text}\n\n"
+                "⏳ Саде-Сати длится ~7.5 лет — это период кармической трансформации, "
+                "глубоких уроков и духовного роста.\n\n"
+                "💡 *Упайя (гармонизация):* пение мантры Шани — *«Ом Шам Шанайе Намаха»* — "
+                "по субботам, ношение синего сапфира (после консультации), служение пожилым людям."
+            )
+        else:
+            text = (
+                "🪐 *Саде-Сати — НЕ активна*\n\n"
+                f"🌙 Твоя натальная Луна: *{result['natal_moon_sign']}*\n"
+                f"🪐 Транзитный Сатурн: *{result['saturn_sign']}*\n\n"
+                "✅ Сейчас период Саде-Сати не затрагивает твою Луну. "
+                "Влияние Сатурна менее интенсивно.\n\n"
+                "ℹ️ Саде-Сати наступает, когда транзитный Сатурн проходит "
+                "через 12-й, 1-й и 2-й знаки от натальной Луны (~7.5 лет)."
+            )
+
+        await status_msg.delete()
+        await update.message.reply_text(text, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.exception("Ошибка проверки Саде-Сати")
+        await status_msg.edit_text(f"⚠️ Ошибка при проверке Саде-Сати: {e}")
+
+
+# ===================== ДЕТЕКТОР ЙОГ =====================
+
+async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Найти йоги (мощные комбинации планет) в натальной карте."""
+    profile = context.user_data.get("natal_profile")
+    if not profile:
+        await update.message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart и введи данные рождения."
+        )
+        return
+
+    chart_data = profile["chart_data"]
+
+    status_msg = await update.message.reply_text("🧘 Анализирую натальную карту на наличие йог...")
+    try:
+        yogas = detect_yogas(chart_data)
+
+        active_yogas = [y for y in yogas if y.get("active", False)]
+
+        if not active_yogas:
+            await status_msg.edit_text(
+                "🧘 *Детектор йог*\n\n"
+                "В карте не обнаружено классических йог из базового набора.\n"
+                "Это не означает слабую карту — многие благоприятные комбинации "
+                "требуют более глубокого анализа варг (дробных карт).",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Формируем список найденных йог
+        yoga_lines = []
+        for y in active_yogas:
+            name = y.get("name_ru", y.get("name", "Йога"))
+            desc = y.get("description", "")
+            planets = ", ".join(y.get("planets", []))
+            yoga_lines.append(f"✨ *{name}*\n   {desc}\n   🪐 Планеты: {planets}")
+
+        yoga_text = (
+            f"🧘 *Найдено йог: {len(active_yogas)}*\n\n"
+            + "\n\n".join(yoga_lines)
+        )
+
+        await status_msg.delete()
+        await send_split_message(update, yoga_text)
+
+    except Exception as e:
+        logger.exception("Ошибка детектора йог")
+        await status_msg.edit_text(f"⚠️ Ошибка при анализе йог: {e}")
+        return
+
+    # ИИ-интерпретация йог
+    gemini = get_gemini_client()
+    if not gemini or not active_yogas:
+        return
+
+    has_paid = context.user_data.get("paid_yoga", False)
+    if PAYMENT_REQUIRED and not has_paid:
+        await update.message.reply_text(
+            "🌟 *Йоги найдены!*\n\n"
+            "Хочешь получить персональную трактовку найденных йог от ИИ-астролога? "
+            "Как они влияют на твою судьбу, карьеру и отношения?\n"
+            f"Стоимость разбора: **{PRICE_YOGA_STARS} ⭐️**",
+            parse_mode="Markdown"
+        )
+        await send_yoga_invoice(update, context)
+        return
+
+    ai_status = await update.message.reply_text("🔮 ИИ-астролог трактует найденные йоги...")
+    try:
+        interpretation = await gemini.interpret_yogas(chart_data, profile["summary"], active_yogas)
+        await ai_status.delete()
+        await send_split_message(update, f"🧘 *ИИ-трактовка йог:*\n\n{interpretation}")
+    except Exception as e:
+        logger.exception("Ошибка ИИ-трактовки йог")
+        await ai_status.edit_text(f"⚠️ Ошибка при трактовке йог: {e}")
+
+
+# ===================== ЭКСПРЕСС-ВОПРОС (/ask) =====================
+
+async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начало диалога экспресс-вопроса ИИ-астрологу."""
+    profile = context.user_data.get("natal_profile")
+    if not profile:
+        await update.message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart и введи данные рождения."
+        )
+        return ConversationHandler.END
+
+    gemini = get_gemini_client()
+    if not gemini:
+        await update.message.reply_text(
+            "ℹ️ ИИ-астролог недоступен. Для подключения добавь `GEMINI_API_KEY` в `.env`.",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
+    has_paid = context.user_data.get("paid_ask", False)
+    if PAYMENT_REQUIRED and not has_paid:
+        await update.message.reply_text(
+            "❓ *Экспресс-вопрос ИИ-астрологу*\n\n"
+            "Задай любой вопрос по своей натальной карте — карьера, отношения, здоровье, переезд, финансы.\n\n"
+            f"Стоимость: **{PRICE_ASK_STARS} ⭐️**",
+            parse_mode="Markdown"
+        )
+        await send_ask_invoice(update, context)
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        "❓ *Задай вопрос ИИ-астрологу*\n\n"
+        "Напиши свой вопрос свободным текстом. Например:\n"
+        "• _Когда лучше менять работу?_\n"
+        "• _Подходит ли мне переезд за границу?_\n"
+        "• _Какая сфера карьеры мне подходит?_\n\n"
+        "Для отмены набери /cancel",
+        parse_mode="Markdown"
+    )
+    return ASK_WAITING_QUESTION
+
+
+async def ask_question_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение вопроса и генерация ответа от ИИ-астролога."""
+    question = update.message.text.strip()
+    profile = context.user_data.get("natal_profile")
+
+    if not profile:
+        await update.message.reply_text("Сессия истекла. Начни заново с /chart.")
+        return ConversationHandler.END
+
+    gemini = get_gemini_client()
+    if not gemini:
+        await update.message.reply_text("⚠️ ИИ-астролог недоступен.")
+        return ConversationHandler.END
+
+    chart_data = profile["chart_data"]
+    summary = profile["summary"]
+
+    status_msg = await update.message.reply_text("🔮 ИИ-астролог анализирует твою карту и готовит ответ...")
+    try:
+        answer = await gemini.interpret_ask_question(chart_data, summary, question)
+        await status_msg.delete()
+        await send_split_message(update, f"📜 *Ответ ИИ-астролога:*\n\n{answer}")
+    except Exception as e:
+        logger.exception("Ошибка ответа на вопрос")
+        await status_msg.edit_text(f"⚠️ Ошибка при генерации ответа: {e}")
+
+    return ConversationHandler.END
+
+
 # ===================== ОБРАБОТКА ОПЛАТЫ В ЗВЁЗДАХ (STARS) =====================
 
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -591,6 +817,56 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
                 await send_split_message(update, f"💘 *Анализ совместимости парных карт:*\n\n{interpretation}")
             except Exception as e:
                 await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
+
+    elif payload == "payload_ask_question":
+        context.user_data["paid_ask"] = True
+        await update.message.reply_text(
+            "❓ *Экспресс-вопрос оплачен!*\n\n"
+            "Теперь набери /ask и задай свой вопрос ИИ-астрологу.",
+            parse_mode="Markdown"
+        )
+
+    elif payload == "payload_yoga_interpretation":
+        context.user_data["paid_yoga"] = True
+        # Запускаем ИИ-трактовку йог сразу после оплаты
+        yogas = detect_yogas(chart_data)
+        active_yogas = [y for y in yogas if y.get("active", False)]
+        if active_yogas:
+            status_msg = await update.message.reply_text("🧘 ИИ-астролог трактует найденные йоги...")
+            try:
+                interpretation = await gemini.interpret_yogas(chart_data, summary, active_yogas)
+                await status_msg.delete()
+                await send_split_message(update, f"🧘 *ИИ-трактовка йог:*\n\n{interpretation}")
+            except Exception as e:
+                await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
+        else:
+            await update.message.reply_text(
+                "🧘 Оплата принята! Набери /yoga для анализа йог.",
+                parse_mode="Markdown"
+            )
+
+    elif payload == "payload_bundle_360":
+        # Бандл активирует все платные функции
+        context.user_data["paid_chart"] = True
+        context.user_data["paid_dasha"] = True
+        context.user_data["paid_yoga"] = True
+        context.user_data["paid_ask"] = True
+        # Генерируем полный разбор карты как основной продукт бандла
+        status_msg = await update.message.reply_text(
+            "🌟 *Бандл «Вся судьба 360°» активирован!*\n\n"
+            "Тебе доступны: разбор карты, Даша, йоги и 1 вопрос.\n"
+            "Начинаю полный разбор натальной карты...",
+            parse_mode="Markdown"
+        )
+        try:
+            interpretation = await gemini.interpret_chart(chart_data, summary)
+            await status_msg.delete()
+            await send_split_message(update, f"📜 *Персональный разбор натальной карты:*\n\n{interpretation}")
+            await update.message.reply_text(
+                "✅ Теперь используй /dasha, /yoga и /ask — все они разблокированы!",
+            )
+        except Exception as e:
+            await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
 
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -684,6 +960,15 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel_command)],
     )
 
+    # ConversationHandler для экспресс-вопроса /ask
+    ask_conv = ConversationHandler(
+        entry_points=[CommandHandler("ask", ask_start)],
+        states={
+            ASK_WAITING_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_question_received)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_command)],
+    )
+
     # Регистрация команд
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
@@ -691,8 +976,11 @@ def main():
     app.add_handler(CommandHandler("mydata", mydata_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("dasha", dasha_command))
+    app.add_handler(CommandHandler("sadesati", sadesati_command))
+    app.add_handler(CommandHandler("yoga", yoga_command))
     app.add_handler(chart_conv)
     app.add_handler(compat_conv)
+    app.add_handler(ask_conv)
 
     # Регистрация платёжных хэндлеров (Telegram Stars)
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))

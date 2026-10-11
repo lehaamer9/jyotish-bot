@@ -9,102 +9,122 @@ import asyncio
 from typing import Optional
 
 
-# Системный промпт для Джьотиш-астролога
-JYOTISH_SYSTEM_PROMPT = """Ты — опытный ведический астролог (Джьотиши), следующий традициям Парашара Муни.
-Ты интерпретируешь натальные карты строго по классическим канонам:
-- Брихат Парашара Хора Шастра (BPHS)
-- Джатака Париджата
-- Пхаладипика
-- Саравали
-
-Твои принципы:
-1. Отвечай ТОЛЬКО на русском языке.
-2. Используй ведическую терминологию с понятными русскими пояснениями (например: "Раджа-йога — союз правителей кендр и трикон, дарующий успех и реализацию").
-3. Анализируй структурированно:
-   - Лагна (асцендент) и Лагнеша (хозяин 1-го дома) — физическое тело, вектор судьбы
-   - Чандра (Луна) и накшатра рождения (Джанма-накшатра) — ум, эмоциональный склад
-   - Сурья (Солнце) — дух, эго, жизненная сила
-   - Дома (бхавы) и планеты в них
-   - Текущие планетные периоды (Вимшоттари Маха-Даша и Антар-Даша)
-4. Учитывай достоинство планет: экзальтация (учча), падение (нича), собственный знак (сваграха), ретроградность (вакри).
-5. Не делай фатальных предсказаний. Описывай кармические тенденции, уроки души и зоны роста.
-6. В конце давай традиционные гармонизирующие рекомендации (упайи): мантра, благотворительность, цвета, режим дня.
-7. Используй аккуратные эмодзи (🔮, 🪐, 🌟, ✨) и форматирование Markdown.
+# Системный промпт для Джьотиш-астролога (оптимизирован для скорости)
+JYOTISH_SYSTEM_PROMPT = """Ты — ведический астролог (Джьотиши) традиции Парашара (BPHS).
+Отвечай ТОЛЬКО на русском. Используй ведическую терминологию с краткими пояснениями.
+Анализируй: Лагну/Лагнешу, Чандру/накшатру, Сурью, бхавы, Вимшоттари Дашу.
+Учитывай достоинство планет (учча/нича/сваграха/вакри).
+Описывай кармические тенденции без фатальных предсказаний.
+Давай упайи (мантры, благотворительность). Используй эмодзи и Markdown.
 """
 
-CHART_INTERPRETATION_PROMPT = """Проанализируй следующую натальную карту (Кундли D1) ведической астрологии.
+CHART_INTERPRETATION_PROMPT = """Проанализируй натальную карту (D1).
 
 {chart_summary}
 
-Структурированные данные карты (JSON):
 ```json
 {chart_json}
 ```
 
-Дай развёрнутую персональную интерпретацию по разделам:
-1. 👤 **Личность и предназначение:** Восходящий знак (Лагна), управитель Лагны и их влияние на характер.
-2. 🌙 **Внутренний мир и эмоции:** Луна, знак Луны и лунная накшатра (природа ума, реакции).
-3. 💼 **Карьера и статус:** Анализ 10-го дома, сильные стороны в профессии и бизнесе.
-4. 💰 **Финансы и благосостояние:** 2-й и 11-й дома богатства (Дхана-йоги).
-5. ❤️ **Любовь и партнёрство:** 7-й дом, положение Венеры и Юпитера.
-6. ⏳ **Текущий этап жизни:** Активная Маха-Даша и Антар-Даша — какие темы выходят на первый план прямо сейчас.
-7. 🪔 **Рекомендации (Упайи):** Практические советы для балансировки слабых и усиления сильных планет.
+Дай интерпретацию по разделам:
+1. 👤 **Личность:** Лагна, Лагнеша — характер и предназначение.
+2. 🌙 **Эмоции:** Луна, накшатра — ум и реакции.
+3. 💼 **Карьера:** 10-й дом, профессия.
+4. 💰 **Финансы:** 2-й и 11-й дома, Дхана-йоги.
+5. ❤️ **Партнёрство:** 7-й дом, Венера, Юпитер.
+6. ⏳ **Текущий период:** Маха-Даша и Антар-Даша.
+7. 🪔 **Упайи:** Практические рекомендации.
 """
 
-DASHA_INTERPRETATION_PROMPT = """Проанализируй текущий и предстоящие периоды Вимшоттари Даша для этой натальной карты.
+DASHA_INTERPRETATION_PROMPT = """Проанализируй периоды Вимшоттари Даша.
 
 {chart_summary}
 
-Данные периодов:
 ```json
 {dasha_json}
 ```
 
-Составь глубокий астрологический разбор:
-1. 🌟 **Текущая Маха-Даша:** Хозяин периода, его положение в карте, какие сферы жизни он сейчас активирует.
-2. 💫 **Текущая Антар-Даша:** Взаимодействие планеты подпериода с главной планетой периода.
-3. 🎯 **Благоприятные возможности:** В чем сейчас сопутствует удача (обучение, карьера, недвижимость, духовность).
-4. ⚠️ **Предостережения:** Каких ошибок и импульсивных решений стоит избегать.
-5. 🪔 **Упайи на текущий период:** Конкретные методы гармонизации управляющих планет.
+Разбор:
+1. 🌟 **Текущая Маха-Даша:** Хозяин периода, его положение, активируемые сферы.
+2. 💫 **Антар-Даша:** Взаимодействие планет периода и подпериода.
+3. 🎯 **Возможности:** Благоприятные сферы.
+4. ⚠️ **Предостережения:** Чего избегать.
+5. 🪔 **Упайи:** Гармонизация планет периода.
 """
 
-COMPATIBILITY_PROMPT = """Проведи синастрический анализ совместимости двух карт по системе Аштакута (8 факторов ведической совместимости).
+COMPATIBILITY_PROMPT = """Синастрический анализ совместимости (Аштакута).
 
-Партнёр 1:
-{chart1_summary}
+Партнёр 1: {chart1_summary}
+Партнёр 2: {chart2_summary}
 
-Партнёр 2:
-{chart2_summary}
-
-Данные карты 1:
+Карта 1:
 ```json
 {chart1_json}
 ```
-
-Данные карты 2:
+Карта 2:
 ```json
 {chart2_json}
 ```
 
-Дай подробную интерпретацию союза:
-1. 🧬 **Психологическая и ментальная гармония (Граха Майтри & Гана):** Насколько легко людям понимать друг друга.
-2. ⚡ **Физическое и сексуальное притяжение (Йони Кута):** Совместимость природных темпераментов.
-3. 🌊 **Эмоциональная глубина и поддержка (Бхакут):** Расположение Лун относительно друг друга.
-4. 🛡️ **Кармическая связь и здоровье союза (Нади & Тара):** Энергетический баланс пары.
-5. 💍 **Итог и рекомендации для гармоничных отношений:** Сильные стороны союза и над чем стоит работать осознанно.
+Интерпретация:
+1. 🧬 **Ментальная гармония (Граха Майтри & Гана).**
+2. ⚡ **Физическое притяжение (Йони Кута).**
+3. 🌊 **Эмоциональная совместимость (Бхакут).**
+4. 🛡️ **Кармическая связь (Нади & Тара).**
+5. 💍 **Итог и рекомендации.**
 """
 
+ASK_QUESTION_PROMPT = """Ответь на вопрос пользователя как ведический астролог, опираясь на его натальную карту.
 
+{chart_summary}
+
+```json
+{chart_json}
+```
+
+Вопрос: {user_question}
+
+Дай персональный ответ на основе карты. Используй конкретные планеты, дома и даша. Предложи упайи.
+"""
+
+YOGA_INTERPRETATION_PROMPT = """Проанализируй ведические йоги натальной карты.
+
+{chart_summary}
+
+```json
+{chart_json}
+```
+
+Обнаруженные йоги:
+```json
+{yogas_json}
+```
+
+Для каждой АКТИВНОЙ йоги:
+1. 📖 **Классическое описание** по шастрам (BPHS, Пхаладипика).
+2. 🌟 **Практическое влияние** с учётом положения формирующих планет.
+3. 💪 **Сила йоги** (сильная/средняя/слабая).
+4. 🪔 **Рекомендации** для раскрытия потенциала.
+
+Если активных йог нет — объясни ближайшие потенциальные йоги.
+"""
+
+# Актуальные модели (октябрь 2026): gemini-3.8-flash — флагман, gemini-2.5-flash — стабильный legacy
 CANDIDATE_MODELS = [
-    "gemini-3.5-flash",
     "gemini-3.8-flash",
-    "gemini-flash-latest",
-    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-lite",
 ]
+
+# Таймаут на один запрос к Gemini (секунды)
+_REQUEST_TIMEOUT = 10
 
 
 class GeminiInterpreter:
     """Интерпретатор астрологических данных через Google Gemini API."""
+
+    # Кэш последней рабочей модели — пробуется первой при следующем запросе
+    _working_model: Optional[str] = None
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -151,32 +171,82 @@ class GeminiInterpreter:
         )
         return await self._generate(prompt)
 
+    async def interpret_ask_question(self, chart_data: dict, chart_summary: str,
+                                      user_question: str) -> str:
+        """Ответить на свободный вопрос пользователя на основе его натальной карты."""
+        compact = _compact_chart_json(chart_data)
+        prompt = ASK_QUESTION_PROMPT.format(
+            chart_summary=chart_summary,
+            chart_json=compact,
+            user_question=user_question,
+        )
+        return await self._generate(prompt)
+
+    async def interpret_yogas(self, chart_data: dict, chart_summary: str,
+                               yogas: list) -> str:
+        """Интерпретировать обнаруженные ведические йоги через ИИ."""
+        compact = _compact_chart_json(chart_data)
+        prompt = YOGA_INTERPRETATION_PROMPT.format(
+            chart_summary=chart_summary,
+            chart_json=compact,
+            yogas_json=json.dumps(yogas, ensure_ascii=False, indent=2),
+        )
+        return await self._generate(prompt)
+
     async def _generate(self, prompt: str) -> str:
-        """Выполнить асинхронный вызов модели Gemini с автоматическим фолбэком."""
+        """Выполнить асинхронный вызов модели Gemini с автоматическим фолбэком.
+
+        Каждый запрос ограничен _REQUEST_TIMEOUT секунд.
+        Последняя рабочая модель кэшируется и пробуется первой.
+        """
         last_error = None
-        for model_name in CANDIDATE_MODELS:
+
+        # Построить порядок моделей: кэшированная первой, затем остальные
+        models_to_try = list(CANDIDATE_MODELS)
+        if GeminiInterpreter._working_model and GeminiInterpreter._working_model in models_to_try:
+            models_to_try.remove(GeminiInterpreter._working_model)
+            models_to_try.insert(0, GeminiInterpreter._working_model)
+
+        for model_name in models_to_try:
             try:
-                if self._use_new_sdk:
-                    response = await self.client.aio.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=dict(system_instruction=JYOTISH_SYSTEM_PROMPT)
-                    )
-                    if response and response.text:
-                        return response.text
-                else:
-                    import google.generativeai as legacy_genai
-                    model = legacy_genai.GenerativeModel(
-                        model_name=model_name,
-                        system_instruction=JYOTISH_SYSTEM_PROMPT
-                    )
-                    response = await model.generate_content_async(prompt)
-                    if response and response.text:
-                        return response.text
+                result = await asyncio.wait_for(
+                    self._call_model(model_name, prompt),
+                    timeout=_REQUEST_TIMEOUT,
+                )
+                if result:
+                    # Запомнить рабочую модель для следующих вызовов
+                    GeminiInterpreter._working_model = model_name
+                    return result
+            except asyncio.TimeoutError:
+                last_error = TimeoutError(f"{model_name}: таймаут {_REQUEST_TIMEOUT}с")
+                # Сбросить кэш если кэшированная модель не отвечает
+                if GeminiInterpreter._working_model == model_name:
+                    GeminiInterpreter._working_model = None
+                continue
             except Exception as e:
                 last_error = e
+                if GeminiInterpreter._working_model == model_name:
+                    GeminiInterpreter._working_model = None
                 continue
         return f"❌ Ошибка вызова Gemini API: {last_error}"
+
+    async def _call_model(self, model_name: str, prompt: str) -> Optional[str]:
+        """Один вызов конкретной модели (без таймаута — обёртка в _generate)."""
+        if self._use_new_sdk:
+            response = await self.client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=dict(system_instruction=JYOTISH_SYSTEM_PROMPT),
+            )
+            return response.text if response and response.text else None
+        else:
+            import google.generativeai as legacy_genai
+            model = legacy_genai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=JYOTISH_SYSTEM_PROMPT,
+            )
+            response = await model.generate_content_async(prompt)
+            return response.text if response and response.text else None
 
 
 def _compact_chart_json(chart_data: dict) -> str:
