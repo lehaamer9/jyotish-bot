@@ -86,3 +86,4 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer(ok=True)
     else:
         await query.answer(ok=False, error_message="Ошибка идентификатора заказа. Попробуйте снова.")
+

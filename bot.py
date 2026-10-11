@@ -630,10 +630,27 @@ def start_health_server():
         logger.warning(f"Не удалось запустить healthcheck-сервер: {e}")
 
 
+def warmup_ephemeris():
+    """Прогрев астрологического ядра и кэширование NASA эфемерид при старте."""
+    try:
+        logger.info("Прогрев астрологического ядра NASA JPL...")
+        compute_chart(
+            birth_dt=datetime(2000, 1, 1, 12, 0),
+            lat=55.7558,
+            lon=37.6173,
+            tz_offset=3.0,
+            name="Warmup"
+        )
+        logger.info("Эфемериды NASA JPL успешно закешированы!")
+    except Exception as e:
+        logger.warning(f"Ошибка прогрева эфемерид: {e}")
+
+
 # ===================== ТОЧКА ВХОДА =====================
 
 def main():
     start_health_server()
+    warmup_ephemeris()
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token or token == "YOUR_TELEGRAM_BOT_TOKEN":
         print("❌ ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env файле!")

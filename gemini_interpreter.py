@@ -95,6 +95,14 @@ COMPATIBILITY_PROMPT = """Проведи синастрический анали
 """
 
 
+CANDIDATE_MODELS = [
+    "gemini-3.5-flash",
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+    "gemini-3.1-flash-lite",
+]
+
+
 class GeminiInterpreter:
     """Интерпретатор астрологических данных через Google Gemini API."""
 
@@ -111,10 +119,6 @@ class GeminiInterpreter:
         except Exception:
             import google.generativeai as legacy_genai
             legacy_genai.configure(api_key=self.api_key)
-            self.legacy_model = legacy_genai.GenerativeModel(
-                model_name="gemini-2.0-flash",
-                system_instruction=JYOTISH_SYSTEM_PROMPT
-            )
             self._use_new_sdk = False
 
     async def interpret_chart(self, chart_data: dict, chart_summary: str) -> str:
@@ -148,21 +152,31 @@ class GeminiInterpreter:
         return await self._generate(prompt)
 
     async def _generate(self, prompt: str) -> str:
-        """Выполнить асинхронный вызов модели Gemini."""
-        try:
-            if self._use_new_sdk:
-                # Асинхронный вызов нового google.genai SDK
-                response = await self.client.aio.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=prompt,
-                    config=dict(system_instruction=JYOTISH_SYSTEM_PROMPT)
-                )
-                return response.text
-            else:
-                response = await self.legacy_model.generate_content_async(prompt)
-                return response.text
-        except Exception as e:
-            return f"❌ Ошибка вызова Gemini API: {e}"
+        """Выполнить асинхронный вызов модели Gemini с автоматическим фолбэком."""
+        last_error = None
+        for model_name in CANDIDATE_MODELS:
+            try:
+                if self._use_new_sdk:
+                    response = await self.client.aio.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=dict(system_instruction=JYOTISH_SYSTEM_PROMPT)
+                    )
+                    if response and response.text:
+                        return response.text
+                else:
+                    import google.generativeai as legacy_genai
+                    model = legacy_genai.GenerativeModel(
+                        model_name=model_name,
+                        system_instruction=JYOTISH_SYSTEM_PROMPT
+                    )
+                    response = await model.generate_content_async(prompt)
+                    if response and response.text:
+                        return response.text
+            except Exception as e:
+                last_error = e
+                continue
+        return f"❌ Ошибка вызова Gemini API: {last_error}"
 
 
 def _compact_chart_json(chart_data: dict) -> str:
