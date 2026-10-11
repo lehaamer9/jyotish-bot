@@ -602,9 +602,38 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Jyotish Bot is running 24/7!")
+
+    def log_message(self, format, *args):
+        pass
+
+
+def start_health_server():
+    port_str = os.getenv("PORT")
+    if not port_str:
+        return
+    try:
+        port = int(port_str)
+        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        logger.info(f"Healthcheck HTTP-сервер запущен на порту {port}")
+    except Exception as e:
+        logger.warning(f"Не удалось запустить healthcheck-сервер: {e}")
+
+
 # ===================== ТОЧКА ВХОДА =====================
 
 def main():
+    start_health_server()
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token or token == "YOUR_TELEGRAM_BOT_TOKEN":
         print("❌ ОШИБКА: TELEGRAM_BOT_TOKEN не задан в .env файле!")
