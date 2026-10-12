@@ -23,6 +23,7 @@ load_dotenv()
 
 from telegram import (
     Update,
+    BotCommand,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     InlineKeyboardButton,
@@ -32,6 +33,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ConversationHandler,
     PreCheckoutQueryHandler,
     ContextTypes,
@@ -104,32 +106,148 @@ def get_gemini_client():
         return None
 
 
-async def send_split_message(update: Update, text: str, parse_mode: str = "Markdown"):
-    """Отправить длинное сообщение частями, соблюдая лимит Telegram."""
+async def send_split_message(update: Update, text: str, parse_mode: str = "Markdown", reply_markup=None):
+    """Отправить длинное сообщение частями, соблюдая лимит Telegram, прикрепляя клавиатуру к концу."""
     if len(text) <= TELEGRAM_MAX_MESSAGE_LENGTH:
         try:
-            await update.effective_message.reply_text(text, parse_mode=parse_mode)
+            await update.effective_message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
         except Exception:
-            await update.effective_message.reply_text(text)
+            await update.effective_message.reply_text(text, reply_markup=reply_markup)
         return
 
     paragraphs = text.split("\n\n")
     current_chunk = ""
+    chunks = []
     for para in paragraphs:
         if len(current_chunk) + len(para) + 2 > TELEGRAM_MAX_MESSAGE_LENGTH:
             if current_chunk:
-                try:
-                    await update.effective_message.reply_text(current_chunk.strip(), parse_mode=parse_mode)
-                except Exception:
-                    await update.effective_message.reply_text(current_chunk.strip())
+                chunks.append(current_chunk.strip())
                 current_chunk = ""
         current_chunk += para + "\n\n"
 
     if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    for i, chunk in enumerate(chunks):
+        markup = reply_markup if i == len(chunks) - 1 else None
         try:
-            await update.effective_message.reply_text(current_chunk.strip(), parse_mode=parse_mode)
+            await update.effective_message.reply_text(chunk, parse_mode=parse_mode, reply_markup=markup)
         except Exception:
-            await update.effective_message.reply_text(current_chunk.strip())
+            await update.effective_message.reply_text(chunk, reply_markup=markup)
+
+
+# ===================== КЛАВИАТУРЫ И НАВИГАЦИЯ =====================
+
+def get_main_reply_keyboard():
+    """Постоянная нижняя клавиатура быстрого доступа (ReplyKeyboardMarkup)."""
+    keyboard = [
+        ["🔮 Натальная карта", "⏳ Периоды Даша"],
+        ["🪐 Саде-Сати", "🧘 Детектор йог"],
+        ["❓ Задать вопрос", "💞 Совместимость"],
+        ["⭐️ Тарифы", "📋 Мои данные"],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
+
+
+def get_start_inline_keyboard():
+    """Инлайн-кнопки приветствия /start."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔮 Составить натальную карту", callback_data="nav_chart"),
+        ],
+        [
+            InlineKeyboardButton("⭐️ Тарифы", callback_data="nav_prices"),
+            InlineKeyboardButton("📖 Справка", callback_data="nav_help"),
+        ],
+    ])
+
+
+def get_chart_inline_keyboard():
+    """Инлайн-кнопки следующих шагов после расчета натальной карты."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+            InlineKeyboardButton("🪐 Саде-Сати", callback_data="nav_sadesati"),
+        ],
+        [
+            InlineKeyboardButton("🧘 Детектор йог", callback_data="nav_yoga"),
+            InlineKeyboardButton("❓ Задать вопрос", callback_data="nav_ask"),
+        ],
+        [
+            InlineKeyboardButton("💞 Совместимость", callback_data="nav_compat"),
+            InlineKeyboardButton("⭐️ Тарифы", callback_data="nav_prices"),
+        ],
+    ])
+
+
+def get_dasha_inline_keyboard():
+    """Инлайн-кнопки следующих шагов после показа периодов Даша."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🪐 Проверить Саде-Сати", callback_data="nav_sadesati"),
+            InlineKeyboardButton("🧘 Найти йоги", callback_data="nav_yoga"),
+        ],
+        [
+            InlineKeyboardButton("❓ Задать вопрос по Даша", callback_data="nav_ask"),
+            InlineKeyboardButton("🔮 Моя карта", callback_data="nav_mydata"),
+        ],
+    ])
+
+
+def get_sadesati_inline_keyboard():
+    """Инлайн-кнопки следующих шагов после проверки Саде-Сати."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+            InlineKeyboardButton("🧘 Детектор йог", callback_data="nav_yoga"),
+        ],
+        [
+            InlineKeyboardButton("❓ Вопрос астрологу", callback_data="nav_ask"),
+            InlineKeyboardButton("🔮 Моя карта", callback_data="nav_mydata"),
+        ],
+    ])
+
+
+def get_yoga_inline_keyboard():
+    """Инлайн-кнопки следующих шагов после проверки йог."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❓ Вопрос по йогам", callback_data="nav_ask"),
+            InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+        ],
+        [
+            InlineKeyboardButton("🪐 Саде-Сати", callback_data="nav_sadesati"),
+            InlineKeyboardButton("🔮 Моя карта", callback_data="nav_mydata"),
+        ],
+    ])
+
+
+def get_ask_inline_keyboard():
+    """Инлайн-кнопки после ответа на экспресс-вопрос."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❓ Ещё один вопрос", callback_data="nav_ask"),
+            InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+        ],
+        [
+            InlineKeyboardButton("🧘 Детектор йог", callback_data="nav_yoga"),
+            InlineKeyboardButton("⭐️ Все тарифы", callback_data="nav_prices"),
+        ],
+    ])
+
+
+def get_compat_inline_keyboard():
+    """Инлайн-кнопки после анализа совместимости."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❓ Вопрос об отношениях", callback_data="nav_ask"),
+            InlineKeyboardButton("⏳ Мои периоды", callback_data="nav_dasha"),
+        ],
+        [
+            InlineKeyboardButton("🔮 Моя карта", callback_data="nav_mydata"),
+            InlineKeyboardButton("⭐️ Тарифы", callback_data="nav_prices"),
+        ],
+    ])
 
 
 # ===================== КОМАНДЫ БОТА =====================
@@ -158,9 +276,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👉 /mydata — посмотреть сохранённые данные\n"
         "👉 /reset — сбросить данные\n"
         "👉 /help — справка\n\n"
-        "Нажми /chart, чтобы начать!"
+        "👇 *Выбери действие на кнопках ниже или нажми /chart:*"
     )
-    await update.message.reply_text(greeting, parse_mode="Markdown")
+    await update.effective_message.reply_text(
+        greeting,
+        parse_mode="Markdown",
+        reply_markup=get_main_reply_keyboard()
+    )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -179,7 +301,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 /cancel — Отмена текущего шага ввода.\n\n"
         "💡 *Оплата:* Базовые расчёты бесплатны. Подробные трактовки оплачиваются в ⭐️ Telegram Stars прямо в приложении."
     )
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    await update.effective_message.reply_text(
+        help_text,
+        parse_mode="Markdown",
+        reply_markup=get_main_reply_keyboard()
+    )
 
 
 async def prices_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -201,15 +327,34 @@ async def prices_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🆓 *Бесплатно:* базовые расчёты, /sadesati (Саде-Сати).\n\n"
         "✨ Оплата производится в 1 клик через официальные звёзды Telegram (Apple Pay / Google Pay / карты)."
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    prices_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(f"🔮 Карта ({PRICE_CHART_STARS} ⭐️)", callback_data="buy_chart"),
+            InlineKeyboardButton(f"⏳ Даша ({PRICE_DASHA_STARS} ⭐️)", callback_data="buy_dasha"),
+        ],
+        [
+            InlineKeyboardButton(f"💞 Совместимость ({PRICE_COMPAT_STARS} ⭐️)", callback_data="buy_compat"),
+            InlineKeyboardButton(f"❓ Вопрос ({PRICE_ASK_STARS} ⭐️)", callback_data="buy_ask"),
+        ],
+        [
+            InlineKeyboardButton(f"🧘 Йоги ({PRICE_YOGA_STARS} ⭐️)", callback_data="buy_yoga"),
+            InlineKeyboardButton(f"🌟 Бандл 360° ({PRICE_BUNDLE_STARS} ⭐️)", callback_data="buy_bundle"),
+        ],
+    ])
+    await update.effective_message.reply_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=prices_keyboard
+    )
 
 
 async def mydata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать сохранённые данные пользователя."""
     profile = context.user_data.get("natal_profile")
     if not profile:
-        await update.message.reply_text(
-            "У тебя пока нет сохранённой натальной карты.\nНажми /chart, чтобы составить её!"
+        await update.effective_message.reply_text(
+            "У тебя пока нет сохранённой натальной карты.\nНажми кнопку ниже или /chart, чтобы составить её!",
+            reply_markup=get_main_reply_keyboard()
         )
         return
 
@@ -221,14 +366,19 @@ async def mydata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌐 Координаты: `{profile['lat']:.4f}, {profile['lon']:.4f}` (UTC{profile['tz_offset']:+.1f})\n\n"
         "Чтобы пересчитать с новыми данными, используй /reset или /chart."
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.effective_message.reply_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=get_chart_inline_keyboard()
+    )
 
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сбросить сохранённые данные."""
     context.user_data.clear()
-    await update.message.reply_text(
-        "Данные сброшены. Чтобы составить новую карту, нажми /chart."
+    await update.effective_message.reply_text(
+        "Данные сброшены. Чтобы составить новую карту, нажми /chart или кнопку ниже:",
+        reply_markup=get_main_reply_keyboard()
     )
 
 
@@ -338,6 +488,7 @@ async def chart_place_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Отправляем астрономический расчёт бесплатно всем
         await status_msg.delete()
+        chart_buttons = get_chart_inline_keyboard()
         await send_split_message(update, summary)
 
     except Exception as e:
@@ -347,34 +498,44 @@ async def chart_place_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
     gemini = get_gemini_client()
     if not gemini:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "ℹ️ *Астрономический расчёт готов!*\n\n"
             "Для подключения глубокой текстовой трактовки карты от ИИ добавь `GEMINI_API_KEY` в файл `.env`.",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=get_chart_inline_keyboard()
         )
         return ConversationHandler.END
 
     # Проверка монетизации (если включен платный режим)
     has_paid = context.user_data.get("paid_chart", False)
     if PAYMENT_REQUIRED and not has_paid:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "🌟 *Натальная карта успешно построена!*\n\n"
             "Хочешь получить подробную расшифровку судьбы, предназначения, сильных сторон и кармических уроков от ИИ-астролога?\n"
             f"Стоимость разбора: **{PRICE_CHART_STARS} ⭐️**",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=get_chart_inline_keyboard()
         )
         await send_chart_invoice(update, context)
         return ConversationHandler.END
 
     # Если оплачено или в бесплатном режиме:
-    ai_status = await update.message.reply_text("🔮 ИИ-Астролог составляет подробную трактовку твоей карты...")
+    ai_status = await update.effective_message.reply_text("🔮 ИИ-Астролог составляет подробную трактовку твоей карты...")
     try:
         interpretation = await gemini.interpret_chart(chart_data, summary)
         await ai_status.delete()
-        await send_split_message(update, f"📜 *Интерпретация карты от ИИ:*\n\n{interpretation}")
+        await send_split_message(
+            update,
+            f"📜 *Интерпретация карты от ИИ:*\n\n{interpretation}",
+            reply_markup=get_chart_inline_keyboard()
+        )
     except Exception as e:
         logger.exception("Ошибка генерации Gemini")
         await ai_status.edit_text(f"⚠️ Не удалось получить ответ ИИ: {e}")
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_chart_inline_keyboard()
+        )
 
     return ConversationHandler.END
 
@@ -385,8 +546,9 @@ async def dasha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать и интерпретировать периоды жизни Вимшоттари Даша."""
     profile = context.user_data.get("natal_profile")
     if not profile:
-        await update.message.reply_text(
-            "Сначала необходимо составить натальную карту!\nНажми /chart и введи данные рождения."
+        await update.effective_message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
+            reply_markup=get_main_reply_keyboard()
         )
         return
 
@@ -394,34 +556,45 @@ async def dasha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary = profile["summary"]
     dasha_text = format_dasha_periods(chart_data)
 
-    await send_split_message(update, dasha_text)
-
     gemini = get_gemini_client()
     if not gemini:
-        await update.message.reply_text(
-            "💡 Чтобы получить анализ текущего периода жизни от ИИ, добавь `GEMINI_API_KEY` в файл `.env`."
+        await send_split_message(update, dasha_text, reply_markup=get_dasha_inline_keyboard())
+        await update.effective_message.reply_text(
+            "💡 Чтобы получить анализ текущего периода жизни от ИИ, добавь `GEMINI_API_KEY` в файл `.env`.",
+            reply_markup=get_dasha_inline_keyboard()
         )
         return
 
     has_paid = context.user_data.get("paid_dasha", False)
     if PAYMENT_REQUIRED and not has_paid:
-        await update.message.reply_text(
+        await send_split_message(update, dasha_text)
+        await update.effective_message.reply_text(
             "⏳ *Периоды рассчитаны!*\n\n"
             "Чтобы получить глубокий анализ текущего планетного периода (Маха-Даша и Антар-Даша) от ИИ с рекомендациями упай:\n"
             f"Стоимость разбора: **{PRICE_DASHA_STARS} ⭐️**",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=get_dasha_inline_keyboard()
         )
         await send_dasha_invoice(update, context)
         return
 
-    status_msg = await update.message.reply_text("🔮 Анализирую текущий период жизни через ИИ...")
+    await send_split_message(update, dasha_text)
+    status_msg = await update.effective_message.reply_text("🔮 Анализирую текущий период жизни через ИИ...")
     try:
         interpretation = await gemini.interpret_dasha(chart_data, summary)
         await status_msg.delete()
-        await send_split_message(update, f"🌟 *Анализ текущего периода жизни:*\n\n{interpretation}")
+        await send_split_message(
+            update,
+            f"🌟 *Анализ текущего периода жизни:*\n\n{interpretation}",
+            reply_markup=get_dasha_inline_keyboard()
+        )
     except Exception as e:
         logger.exception("Ошибка анализа даша")
         await status_msg.edit_text(f"⚠️ Ошибка при анализе даша: {e}")
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_dasha_inline_keyboard()
+        )
 
 
 # ===================== ДИАЛОГ СОВМЕСТИМОСТИ =====================
@@ -545,11 +718,19 @@ async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TY
             chart2_summary=partner_summary,
         )
         await status_msg.delete()
-        await send_split_message(update, f"💘 *Анализ совместимости парных карт:*\n\n{result}")
+        await send_split_message(
+            update,
+            f"💘 *Анализ совместимости парных карт:*\n\n{result}",
+            reply_markup=get_compat_inline_keyboard()
+        )
 
     except Exception as e:
         logger.exception("Ошибка совместимости")
         await status_msg.edit_text(f"⚠️ Ошибка при анализе: {e}")
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_compat_inline_keyboard()
+        )
 
     return ConversationHandler.END
 
@@ -560,12 +741,13 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Проверка текущего статуса Саде-Сати (транзит Сатурна по Луне)."""
     profile = context.user_data.get("natal_profile")
     if not profile:
-        await update.message.reply_text(
-            "Сначала необходимо составить натальную карту!\nНажми /chart и введи данные рождения."
+        await update.effective_message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
+            reply_markup=get_main_reply_keyboard()
         )
         return
 
-    status_msg = await update.message.reply_text("🪐 Вычисляю положение транзитного Сатурна...")
+    status_msg = await update.effective_message.reply_text("🪐 Вычисляю положение транзитного Сатурна...")
     try:
         chart_data = profile["chart_data"]
         result = check_sade_sati(chart_data)
@@ -599,11 +781,19 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         await status_msg.delete()
-        await update.message.reply_text(text, parse_mode="Markdown")
+        await update.effective_message.reply_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=get_sadesati_inline_keyboard()
+        )
 
     except Exception as e:
         logger.exception("Ошибка проверки Саде-Сати")
         await status_msg.edit_text(f"⚠️ Ошибка при проверке Саде-Сати: {e}")
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_sadesati_inline_keyboard()
+        )
 
 
 # ===================== ДЕТЕКТОР ЙОГ =====================
@@ -612,14 +802,15 @@ async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Найти йоги (мощные комбинации планет) в натальной карте."""
     profile = context.user_data.get("natal_profile")
     if not profile:
-        await update.message.reply_text(
-            "Сначала необходимо составить натальную карту!\nНажми /chart и введи данные рождения."
+        await update.effective_message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
+            reply_markup=get_main_reply_keyboard()
         )
         return
 
     chart_data = profile["chart_data"]
 
-    status_msg = await update.message.reply_text("🧘 Анализирую натальную карту на наличие йог...")
+    status_msg = await update.effective_message.reply_text("🧘 Анализирую натальную карту на наличие йог...")
     try:
         yogas = detect_yogas(chart_data)
 
@@ -632,6 +823,10 @@ async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Это не означает слабую карту — многие благоприятные комбинации "
                 "требуют более глубокого анализа варг (дробных карт).",
                 parse_mode="Markdown"
+            )
+            await update.effective_message.reply_text(
+                "Выбери следующее действие:",
+                reply_markup=get_yoga_inline_keyboard()
             )
             return
 
@@ -654,33 +849,50 @@ async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("Ошибка детектора йог")
         await status_msg.edit_text(f"⚠️ Ошибка при анализе йог: {e}")
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_yoga_inline_keyboard()
+        )
         return
 
     # ИИ-интерпретация йог
     gemini = get_gemini_client()
     if not gemini or not active_yogas:
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_yoga_inline_keyboard()
+        )
         return
 
     has_paid = context.user_data.get("paid_yoga", False)
     if PAYMENT_REQUIRED and not has_paid:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "🌟 *Йоги найдены!*\n\n"
             "Хочешь получить персональную трактовку найденных йог от ИИ-астролога? "
             "Как они влияют на твою судьбу, карьеру и отношения?\n"
             f"Стоимость разбора: **{PRICE_YOGA_STARS} ⭐️**",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=get_yoga_inline_keyboard()
         )
         await send_yoga_invoice(update, context)
         return
 
-    ai_status = await update.message.reply_text("🔮 ИИ-астролог трактует найденные йоги...")
+    ai_status = await update.effective_message.reply_text("🔮 ИИ-астролог трактует найденные йоги...")
     try:
         interpretation = await gemini.interpret_yogas(chart_data, profile["summary"], active_yogas)
         await ai_status.delete()
-        await send_split_message(update, f"🧘 *ИИ-трактовка йог:*\n\n{interpretation}")
+        await send_split_message(
+            update,
+            f"🧘 *ИИ-трактовка йог:*\n\n{interpretation}",
+            reply_markup=get_yoga_inline_keyboard()
+        )
     except Exception as e:
         logger.exception("Ошибка ИИ-трактовки йог")
         await ai_status.edit_text(f"⚠️ Ошибка при трактовке йог: {e}")
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_yoga_inline_keyboard()
+        )
 
 
 # ===================== ЭКСПРЕСС-ВОПРОС (/ask) =====================
@@ -689,22 +901,24 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало диалога экспресс-вопроса ИИ-астрологу."""
     profile = context.user_data.get("natal_profile")
     if not profile:
-        await update.message.reply_text(
-            "Сначала необходимо составить натальную карту!\nНажми /chart и введи данные рождения."
+        await update.effective_message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
+            reply_markup=get_main_reply_keyboard()
         )
         return ConversationHandler.END
 
     gemini = get_gemini_client()
     if not gemini:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "ℹ️ ИИ-астролог недоступен. Для подключения добавь `GEMINI_API_KEY` в `.env`.",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=get_main_reply_keyboard()
         )
         return ConversationHandler.END
 
     has_paid = context.user_data.get("paid_ask", False)
     if PAYMENT_REQUIRED and not has_paid:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "❓ *Экспресс-вопрос ИИ-астрологу*\n\n"
             "Задай любой вопрос по своей натальной карте — карьера, отношения, здоровье, переезд, финансы.\n\n"
             f"Стоимость: **{PRICE_ASK_STARS} ⭐️**",
@@ -713,7 +927,7 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_ask_invoice(update, context)
         return ConversationHandler.END
 
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         "❓ *Задай вопрос ИИ-астрологу*\n\n"
         "Напиши свой вопрос свободным текстом. Например:\n"
         "• _Когда лучше менять работу?_\n"
@@ -731,25 +945,36 @@ async def ask_question_received(update: Update, context: ContextTypes.DEFAULT_TY
     profile = context.user_data.get("natal_profile")
 
     if not profile:
-        await update.message.reply_text("Сессия истекла. Начни заново с /chart.")
+        await update.effective_message.reply_text(
+            "Сессия истекла. Начни заново с /chart.",
+            reply_markup=get_main_reply_keyboard()
+        )
         return ConversationHandler.END
 
     gemini = get_gemini_client()
     if not gemini:
-        await update.message.reply_text("⚠️ ИИ-астролог недоступен.")
+        await update.effective_message.reply_text("⚠️ ИИ-астролог недоступен.")
         return ConversationHandler.END
 
     chart_data = profile["chart_data"]
     summary = profile["summary"]
 
-    status_msg = await update.message.reply_text("🔮 ИИ-астролог анализирует твою карту и готовит ответ...")
+    status_msg = await update.effective_message.reply_text("🔮 ИИ-астролог анализирует твою карту и готовит ответ...")
     try:
         answer = await gemini.interpret_ask_question(chart_data, summary, question)
         await status_msg.delete()
-        await send_split_message(update, f"📜 *Ответ ИИ-астролога:*\n\n{answer}")
+        await send_split_message(
+            update,
+            f"📜 *Ответ ИИ-астролога:*\n\n{answer}",
+            reply_markup=get_ask_inline_keyboard()
+        )
     except Exception as e:
         logger.exception("Ошибка ответа на вопрос")
         await status_msg.edit_text(f"⚠️ Ошибка при генерации ответа: {e}")
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_ask_inline_keyboard()
+        )
 
     return ConversationHandler.END
 
@@ -785,21 +1010,29 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
 
     if payload == "payload_chart_interpretation":
         context.user_data["paid_chart"] = True
-        status_msg = await update.message.reply_text("🔮 Составляю твой премиальный разбор натальной карты...")
+        status_msg = await update.effective_message.reply_text("🔮 Составляю твой премиальный разбор натальной карты...")
         try:
             interpretation = await gemini.interpret_chart(chart_data, summary)
             await status_msg.delete()
-            await send_split_message(update, f"📜 *Персональный разбор натальной карты:*\n\n{interpretation}")
+            await send_split_message(
+                update,
+                f"📜 *Персональный разбор натальной карты:*\n\n{interpretation}",
+                reply_markup=get_chart_inline_keyboard()
+            )
         except Exception as e:
             await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
 
     elif payload == "payload_dasha_interpretation":
         context.user_data["paid_dasha"] = True
-        status_msg = await update.message.reply_text("⏳ Формирую подробный анализ планетных периодов...")
+        status_msg = await update.effective_message.reply_text("⏳ Формирую подробный анализ планетных периодов...")
         try:
             interpretation = await gemini.interpret_dasha(chart_data, summary)
             await status_msg.delete()
-            await send_split_message(update, f"🌟 *Анализ периодов судьбы (Даша):*\n\n{interpretation}")
+            await send_split_message(
+                update,
+                f"🌟 *Анализ периодов судьбы (Даша):*\n\n{interpretation}",
+                reply_markup=get_dasha_inline_keyboard()
+            )
         except Exception as e:
             await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
 
@@ -808,22 +1041,27 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
         partner_chart = context.user_data.get("partner_chart")
         partner_summary = context.user_data.get("partner_summary")
         if partner_chart and partner_summary:
-            status_msg = await update.message.reply_text("💞 Сопоставляю две карты по системе Аштакута...")
+            status_msg = await update.effective_message.reply_text("💞 Сопоставляю две карты по системе Аштакута...")
             try:
                 interpretation = await gemini.interpret_compatibility(
                     chart_data, summary, partner_chart, partner_summary
                 )
                 await status_msg.delete()
-                await send_split_message(update, f"💘 *Анализ совместимости парных карт:*\n\n{interpretation}")
+                await send_split_message(
+                    update,
+                    f"💘 *Анализ совместимости парных карт:*\n\n{interpretation}",
+                    reply_markup=get_compat_inline_keyboard()
+                )
             except Exception as e:
                 await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
 
     elif payload == "payload_ask_question":
         context.user_data["paid_ask"] = True
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "❓ *Экспресс-вопрос оплачен!*\n\n"
-            "Теперь набери /ask и задай свой вопрос ИИ-астрологу.",
-            parse_mode="Markdown"
+            "Теперь нажми кнопку ниже или набери /ask и задай свой вопрос ИИ-астрологу.",
+            parse_mode="Markdown",
+            reply_markup=get_ask_inline_keyboard()
         )
 
     elif payload == "payload_yoga_interpretation":
@@ -832,17 +1070,22 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
         yogas = detect_yogas(chart_data)
         active_yogas = [y for y in yogas if y.get("active", False)]
         if active_yogas:
-            status_msg = await update.message.reply_text("🧘 ИИ-астролог трактует найденные йоги...")
+            status_msg = await update.effective_message.reply_text("🧘 ИИ-астролог трактует найденные йоги...")
             try:
                 interpretation = await gemini.interpret_yogas(chart_data, summary, active_yogas)
                 await status_msg.delete()
-                await send_split_message(update, f"🧘 *ИИ-трактовка йог:*\n\n{interpretation}")
+                await send_split_message(
+                    update,
+                    f"🧘 *ИИ-трактовка йог:*\n\n{interpretation}",
+                    reply_markup=get_yoga_inline_keyboard()
+                )
             except Exception as e:
                 await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
         else:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "🧘 Оплата принята! Набери /yoga для анализа йог.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=get_yoga_inline_keyboard()
             )
 
     elif payload == "payload_bundle_360":
@@ -852,7 +1095,7 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
         context.user_data["paid_yoga"] = True
         context.user_data["paid_ask"] = True
         # Генерируем полный разбор карты как основной продукт бандла
-        status_msg = await update.message.reply_text(
+        status_msg = await update.effective_message.reply_text(
             "🌟 *Бандл «Вся судьба 360°» активирован!*\n\n"
             "Тебе доступны: разбор карты, Даша, йоги и 1 вопрос.\n"
             "Начинаю полный разбор натальной карты...",
@@ -861,21 +1104,139 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
         try:
             interpretation = await gemini.interpret_chart(chart_data, summary)
             await status_msg.delete()
-            await send_split_message(update, f"📜 *Персональный разбор натальной карты:*\n\n{interpretation}")
-            await update.message.reply_text(
+            await send_split_message(
+                update,
+                f"📜 *Персональный разбор натальной карты:*\n\n{interpretation}",
+                reply_markup=get_chart_inline_keyboard()
+            )
+            await update.effective_message.reply_text(
                 "✅ Теперь используй /dasha, /yoga и /ask — все они разблокированы!",
+                reply_markup=get_main_reply_keyboard()
             )
         except Exception as e:
             await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
 
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отмена текущего ввода."""
-    await update.message.reply_text(
-        "Ввод отменён. Нажми /chart или /help в любой момент.",
-        reply_markup=ReplyKeyboardRemove()
+    """Отмена текущего ввода и возврат к главному меню."""
+    await update.effective_message.reply_text(
+        "Ввод отменён. Нажми кнопку ниже или /chart в любой момент.",
+        reply_markup=get_main_reply_keyboard()
     )
     return ConversationHandler.END
+
+
+# ===================== НАВИГАЦИОННЫЕ И ИНЛАЙН ХЕНДЛЕРЫ =====================
+
+async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Единый диспетчер для навигационных и платёжных инлайн-кнопок."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    logger.info(f"Нажата инлайн-кнопка: {data}")
+
+    # Навигационные переходы
+    if data == "nav_chart":
+        profile = context.user_data.get("natal_profile")
+        if profile:
+            await query.message.reply_text(
+                "🔮 Твоя натальная карта уже составлена. Вот твои данные:\n"
+                "(Если хочешь пересчитать с новой датой — нажми /reset)",
+                reply_markup=get_chart_inline_keyboard()
+            )
+            await mydata_command(update, context)
+        else:
+            await chart_start(update, context)
+
+    elif data == "nav_dasha":
+        await dasha_command(update, context)
+
+    elif data == "nav_sadesati":
+        await sadesati_command(update, context)
+
+    elif data == "nav_yoga":
+        await yoga_command(update, context)
+
+    elif data == "nav_ask":
+        await ask_start(update, context)
+
+    elif data == "nav_compat":
+        await compat_start(update, context)
+
+    elif data == "nav_prices":
+        await prices_command(update, context)
+
+    elif data == "nav_mydata":
+        await mydata_command(update, context)
+
+    elif data == "nav_help":
+        await help_command(update, context)
+
+    # Покупка услуг напрямую из меню /prices
+    elif data == "buy_chart":
+        await send_chart_invoice(update, context)
+
+    elif data == "buy_dasha":
+        await send_dasha_invoice(update, context)
+
+    elif data == "buy_compat":
+        await send_compat_invoice(update, context)
+
+    elif data == "buy_ask":
+        await send_ask_invoice(update, context)
+
+    elif data == "buy_yoga":
+        await send_yoga_invoice(update, context)
+
+    elif data == "buy_bundle":
+        await send_bundle_invoice(update, context)
+
+
+async def handle_menu_text_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатий на постоянную нижнюю клавиатуру (ReplyKeyboardMarkup)."""
+    text = update.message.text.strip() if update.message and update.message.text else ""
+    if text == "🔮 Натальная карта":
+        profile = context.user_data.get("natal_profile")
+        if profile:
+            await mydata_command(update, context)
+        else:
+            return await chart_start(update, context)
+    elif text == "⏳ Периоды Даша":
+        return await dasha_command(update, context)
+    elif text == "🪐 Саде-Сати":
+        return await sadesati_command(update, context)
+    elif text == "🧘 Детектор йог":
+        return await yoga_command(update, context)
+    elif text == "❓ Задать вопрос":
+        return await ask_start(update, context)
+    elif text == "💞 Совместимость":
+        return await compat_start(update, context)
+    elif text == "⭐️ Тарифы":
+        return await prices_command(update, context)
+    elif text == "📋 Мои данные":
+        return await mydata_command(update, context)
+
+
+async def post_init(application: Application) -> None:
+    """Регистрация списка команд в системном меню Telegram (кнопка [/] Меню)."""
+    commands = [
+        BotCommand("chart", "🔮 Составить натальную карту"),
+        BotCommand("dasha", "⏳ Периоды жизни (Даша)"),
+        BotCommand("sadesati", "🪐 Калькулятор Саде-Сати"),
+        BotCommand("yoga", "🧘 Детектор йог"),
+        BotCommand("ask", "❓ Экспресс-вопрос ИИ"),
+        BotCommand("compat", "💞 Совместимость с партнёром"),
+        BotCommand("prices", "⭐️ Тарифы и Звёзды"),
+        BotCommand("mydata", "📋 Мои сохранённые данные"),
+        BotCommand("reset", "🔄 Сброс данных"),
+        BotCommand("help", "📖 Справка и помощь"),
+    ]
+    try:
+        await application.bot.set_my_commands(commands)
+        logger.info("Системное меню команд Telegram успешно зарегистрировано!")
+    except Exception as e:
+        logger.warning(f"Не удалось зарегистрировать команды меню Telegram: {e}")
 
 
 import threading
@@ -933,40 +1294,58 @@ def main():
         print("Открой c:\\Users\\Aleksandr\\Documents\\Private\\jyotish-bot\\.env и укажи токен от @BotFather.")
         sys.exit(1)
 
-    app = Application.builder().token(token).build()
+    app = (
+        Application.builder()
+        .token(token)
+        .post_init(post_init)
+        .build()
+    )
+
+    # Общие fallbacks для диалогов
+    common_fallbacks = [
+        CommandHandler("cancel", cancel_command),
+        MessageHandler(filters.Regex(r"^(❌ Отмена|Отмена|/cancel)$"), cancel_command),
+    ]
 
     # ConversationHandler для натальной карты
     chart_conv = ConversationHandler(
         entry_points=[
             CommandHandler("chart", chart_start),
             CommandHandler("natal", chart_start),
+            MessageHandler(filters.Regex(r"^🔮 Натальная карта$"), chart_start),
         ],
         states={
             WAITING_DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, chart_dob_received)],
             WAITING_TOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, chart_tob_received)],
             WAITING_PLACE: [MessageHandler(filters.TEXT & ~filters.COMMAND, chart_place_received)],
         },
-        fallbacks=[CommandHandler("cancel", cancel_command)],
+        fallbacks=common_fallbacks,
     )
 
     # ConversationHandler для совместимости
     compat_conv = ConversationHandler(
-        entry_points=[CommandHandler("compat", compat_start)],
+        entry_points=[
+            CommandHandler("compat", compat_start),
+            MessageHandler(filters.Regex(r"^💞 Совместимость$"), compat_start),
+        ],
         states={
             COMPAT_WAITING_DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, compat_dob_received)],
             COMPAT_WAITING_TOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, compat_tob_received)],
             COMPAT_WAITING_PLACE: [MessageHandler(filters.TEXT & ~filters.COMMAND, compat_place_received)],
         },
-        fallbacks=[CommandHandler("cancel", cancel_command)],
+        fallbacks=common_fallbacks,
     )
 
     # ConversationHandler для экспресс-вопроса /ask
     ask_conv = ConversationHandler(
-        entry_points=[CommandHandler("ask", ask_start)],
+        entry_points=[
+            CommandHandler("ask", ask_start),
+            MessageHandler(filters.Regex(r"^❓ Задать вопрос$"), ask_start),
+        ],
         states={
             ASK_WAITING_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_question_received)],
         },
-        fallbacks=[CommandHandler("cancel", cancel_command)],
+        fallbacks=common_fallbacks,
     )
 
     # Регистрация команд
@@ -978,15 +1357,24 @@ def main():
     app.add_handler(CommandHandler("dasha", dasha_command))
     app.add_handler(CommandHandler("sadesati", sadesati_command))
     app.add_handler(CommandHandler("yoga", yoga_command))
+
+    # Регистрация диалогов
     app.add_handler(chart_conv)
     app.add_handler(compat_conv)
     app.add_handler(ask_conv)
+
+    # Регистрация нажатий на инлайн-кнопки
+    app.add_handler(CallbackQueryHandler(inline_nav_callback))
+
+    # Регистрация нажатий на постоянную нижнюю клавиатуру
+    MENU_BUTTON_REGEX = r"^(⏳ Периоды Даша|🪐 Саде-Сати|🧘 Детектор йог|⭐️ Тарифы|📋 Мои данные)$"
+    app.add_handler(MessageHandler(filters.Regex(MENU_BUTTON_REGEX), handle_menu_text_button))
 
     # Регистрация платёжных хэндлеров (Telegram Stars)
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
 
-    print("🚀 Джьотиш-бот успешно запущен с поддержкой Telegram Stars!")
+    print("🚀 Джьотиш-бот успешно запущен с поддержкой Telegram Stars и интерактивной навигацией!")
     app.run_polling()
 
 
