@@ -364,6 +364,46 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def prices_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Прайс-лист на услуги в Звёздах Telegram."""
+    text = (
+        "⭐️ *Прайс-лист на ИИ-разборы (Telegram Stars):*\n\n"
+        f"🔮 **Полный разбор натальной карты:** `{PRICE_CHART_STARS} ⭐️`\n"
+        "  • Характер, Лагна, миссия души, карьера, финансы, отношения, персональные упайи.\n\n"
+        f"⏳ **Разбор периодов Вимшоттари Даша:** `{PRICE_DASHA_STARS} ⭐️`\n"
+        "  • Текущая Маха-Даша и Антар-Даша, уроки периода, точки роста, предостережения.\n\n"
+        f"💞 **Анализ совместимости (Аштакута):** `{PRICE_COMPAT_STARS} ⭐️`\n"
+        "  • 8 факторов гармонии, сексуальное притяжение (Йони), ментальное согласие, кармические узлы.\n\n"
+        f"❓ **Экспресс-вопрос ИИ-астрологу:** `{PRICE_ASK_STARS} ⭐️`\n"
+        "  • Задай любой вопрос по своей натальной карте и получи персональный ответ.\n\n"
+        f"🧘 **Детектор йог + ИИ-трактовка:** `{PRICE_YOGA_STARS} ⭐️`\n"
+        "  • Раджа-йога, Гаджакешари, Будхадитья, Дхана, Панча Махапуруша + разбор от ИИ.\n\n"
+        f"🌟 **Бандл «Вся судьба 360°»:** `{PRICE_BUNDLE_STARS} ⭐️`\n"
+        "  • Натальная карта + Даша + Йоги + 1 вопрос — всё в одном со скидкой!\n\n"
+        "🆓 *Бесплатно:* базовые расчёты, /sadesati (Саде-Сати).\n\n"
+        "✨ Оплата производится в 1 клик через официальные звёзды Telegram (Apple Pay / Google Pay / карты)."
+    )
+    prices_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(f"🔮 Карта ({PRICE_CHART_STARS} ⭐️)", callback_data="buy_chart"),
+            InlineKeyboardButton(f"⏳ Даша ({PRICE_DASHA_STARS} ⭐️)", callback_data="buy_dasha"),
+        ],
+        [
+            InlineKeyboardButton(f"💞 Совместимость ({PRICE_COMPAT_STARS} ⭐️)", callback_data="buy_compat"),
+            InlineKeyboardButton(f"❓ Вопрос ({PRICE_ASK_STARS} ⭐️)", callback_data="buy_ask"),
+        ],
+        [
+            InlineKeyboardButton(f"🧘 Йоги ({PRICE_YOGA_STARS} ⭐️)", callback_data="buy_yoga"),
+            InlineKeyboardButton(f"🌟 Бандл 360° ({PRICE_BUNDLE_STARS} ⭐️)", callback_data="buy_bundle"),
+        ],
+    ])
+    await update.effective_message.reply_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=prices_keyboard
+    )
+
+
 async def show_active_profile_card(update: Update, context: ContextTypes.DEFAULT_TYPE, profile: dict):
     """Показать карточку активного профиля с быстрыми действиями."""
     dt_str = profile["birth_dt"].strftime("%d.%m.%Y")
