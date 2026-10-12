@@ -8,6 +8,8 @@ import os
 import sys
 import re
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, date, time
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
@@ -640,6 +642,12 @@ def format_admin_panel() -> str:
     """Форматирование текста панели администратора."""
     stats = get_system_stats()
     status_pay = "🟢 Платный (XTR Stars)" if PAYMENT_REQUIRED else "🟡 Бесплатный (Демо-режим)"
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    server_status = (
+        f"🟢 Render Cloud (`{render_url}`)\n• Self-Pinger: *🟢 Активен (каждые 9 мин)*"
+        if render_url
+        else "💻 Локальный запуск (Localhost)\n• Self-Pinger: *⚪️ Не требуется*"
+    )
 
     recent_text = ""
     if stats["recent_profiles"]:
@@ -653,6 +661,8 @@ def format_admin_panel() -> str:
 
     return (
         "👑 *Панель администратора Джьотиш-Бота*\n\n"
+        f"🖥 *Сервер и статус работы:*\n"
+        f"• Окружение: {server_status}\n\n"
         f"👥 *Пользователи и профили:*\n"
         f"• Уникальных пользователей: *{stats['total_users']}*\n"
         f"• Всего создано карт/профилей: *{stats['total_profiles']}*\n\n"
@@ -2234,6 +2244,24 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning(f"Не удалось зарегистрировать команды меню Telegram: {e}")
 
+    # Уведомление администратора при запуске на облачном сервере Render
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    if render_url:
+        try:
+            await application.bot.send_message(
+                chat_id=ADMIN_USER_ID,
+                text=(
+                    f"👑 *Джьотиш-Бот успешно запущен на сервере Render!*\n\n"
+                    f"🌐 Публичный адрес: `{render_url}`\n"
+                    f"💓 Self-Pinger: *активен* (каждые 9 мин)\n"
+                    f"Сервер не уснёт и будет работать 24/7."
+                ),
+                parse_mode="Markdown"
+            )
+            logger.info(f"Уведомление о старте на Render отправлено администратору ({render_url})")
+        except Exception as e:
+            logger.warning(f"Не удалось отправить уведомление о запуске на Render: {e}")
+
 
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -2263,6 +2291,45 @@ def start_health_server():
         logger.warning(f"Не удалось запустить healthcheck-сервер: {e}")
 
 
+def start_keep_alive_pinger():
+    """
+    Автоматический фоновый пингер для удержания сервера активным 24/7.
+    Бесплатный тариф Render усыпляет Web Service через 15 минут неактивности.
+    Каждые 9 минут пингер отправляет HTTP GET на свой собственный адрес,
+    регистрируя входящий веб-трафик и предотвращая засыпание контейнера.
+    """
+    external_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("APP_URL")
+    if not external_url:
+        logger.info("RENDER_EXTERNAL_URL не задан, self-pinger отключён (локальный запуск).")
+        return
+
+    if not external_url.startswith("http"):
+        external_url = f"https://{external_url}"
+    ping_target = f"{external_url.rstrip('/')}/health"
+
+    def _pinger_loop():
+        import time
+        import urllib.request
+        logger.info(f"🚀 Запущен фоновый Self-Pinger для удержания сервера: {ping_target}")
+        # Первый пинг через 3 минуты после старта
+        time.sleep(180)
+        while True:
+            try:
+                req = urllib.request.Request(
+                    ping_target,
+                    headers={"User-Agent": "JyotishBot-KeepAlive/1.0"}
+                )
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    if resp.status == 200:
+                        logger.info(f"💓 Keep-alive пинг успешен ({ping_target})")
+            except Exception as e:
+                logger.warning(f"⚠️ Предупреждение keep-alive пинга ({ping_target}): {e}")
+            time.sleep(540)  # каждые 9 минут
+
+    t = threading.Thread(target=_pinger_loop, daemon=True)
+    t.start()
+
+
 def warmup_ephemeris():
     """Прогрев астрологического ядра и кэширование NASA эфемерид при старте."""
     try:
@@ -2284,6 +2351,7 @@ def warmup_ephemeris():
 def main():
     init_db()
     start_health_server()
+    start_keep_alive_pinger()
     warmup_ephemeris()
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token or token == "YOUR_TELEGRAM_BOT_TOKEN":
