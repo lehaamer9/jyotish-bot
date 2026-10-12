@@ -276,6 +276,99 @@ class TestProfilesIntegration(unittest.TestCase):
         self.assertEqual(state, bot.ConversationHandler.END)
         self.assertNotIn("temp_profile_name", context_mock.user_data)
 
+    @unittest.mock.patch("bot.send_split_message", new_callable=AsyncMock)
+    @unittest.mock.patch("bot.format_chart_summary", return_value="Сводка карты")
+    @unittest.mock.patch("bot.resolve_location")
+    @unittest.mock.patch("bot.compute_chart")
+    def test_one_line_profile_flow(self, mock_compute, mock_resolve, mock_summary, mock_split):
+        import asyncio
+        mock_resolve.return_value = (51.95, 85.96, 7.0, "Горно-Алтайск, Россия")
+        mock_compute.return_value = {
+            "planets": [{"name": "Moon", "sign": "Cancer"}],
+            "houses": [],
+            "dashas": {"periods": []}
+        }
+
+        update_mock = MagicMock()
+        update_mock.effective_user.id = self.user_id
+        update_mock.effective_user.first_name = "Александр"
+        update_mock.message.text = "Александр, 20.06.1996, 08:25, Горно-Алтайск"
+        status_msg = AsyncMock()
+        update_mock.effective_message.reply_text = AsyncMock(return_value=status_msg)
+        context_mock = MagicMock()
+        context_mock.user_data = {}
+
+        state = asyncio.run(bot.chart_one_line_direct(update_mock, context_mock))
+        self.assertEqual(state, bot.ConversationHandler.END)
+
+        # Проверяем, что профиль сохранился в базе данных
+        active = get_active_profile(self.user_id, db_path=self.db_path)
+        self.assertIsNotNone(active)
+        self.assertEqual(active["profile_name"], "Александр")
+        self.assertEqual(active["place_name"], "Горно-Алтайск")
+        self.assertEqual(active["birth_dt"], datetime(1996, 6, 20, 8, 25))
+
+    def test_sadesati_command_execution(self):
+        import asyncio
+        # Сначала без профиля
+        update_mock = MagicMock()
+        update_mock.effective_user.id = 554433
+        update_mock.effective_message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {}
+
+        asyncio.run(bot.sadesati_command(update_mock, context_mock))
+        first_call = update_mock.effective_message.reply_text.call_args[0][0]
+        self.assertIn("Сначала необходимо составить натальную карту", first_call)
+
+        # Теперь сохраняем профиль
+        chart_data = {
+            "planets": [
+                {"name": "Moon", "sign": "Cancer"},
+                {"name": "Saturn", "sign": "Pisces"}
+            ]
+        }
+        save_profile(
+            user_id=554433,
+            profile_name="Саде-Сати Профиль",
+            birth_dt=datetime(1996, 6, 20, 8, 25),
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data=chart_data,
+            summary="",
+            set_as_active=True,
+            db_path=self.db_path
+        )
+
+        update_mock.effective_message.reply_text.reset_mock()
+        status_msg = AsyncMock()
+        update_mock.effective_message.reply_text.return_value = status_msg
+
+        asyncio.run(bot.sadesati_command(update_mock, context_mock))
+        self.assertTrue(status_msg.delete.called)
+        second_call = update_mock.effective_message.reply_text.call_args[0][0]
+        self.assertIn("Саде-Сати", second_call)
+
+    def test_one_line_filter_behavior(self):
+        msg_valid = MagicMock()
+        msg_valid.text = "Александр, 20.06.1996, 08:25, Горно-Алтайск"
+        self.assertTrue(bot.one_line_filter.filter(msg_valid))
+
+        msg_cmd = MagicMock()
+        msg_cmd.text = "/chart Александр, 20.06.1996, 08:25, Горно-Алтайск"
+        self.assertFalse(bot.one_line_filter.filter(msg_cmd))
+
+        msg_menu = MagicMock()
+        msg_menu.text = "🪐 Саде-Сати"
+        self.assertFalse(bot.one_line_filter.filter(msg_menu))
+
+        msg_partial = MagicMock()
+        msg_partial.text = "15.05.1990"
+        self.assertFalse(bot.one_line_filter.filter(msg_partial))
+
 
 if __name__ == "__main__":
     unittest.main()

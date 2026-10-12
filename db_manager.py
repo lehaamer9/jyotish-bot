@@ -15,6 +15,105 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jyotish.db")
 DB_PATH = os.getenv("DATABASE_PATH", DEFAULT_DB_PATH)
+DEFAULT_BACKUP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profiles.json")
+BACKUP_PATH = os.getenv("PROFILES_BACKUP_PATH", DEFAULT_BACKUP_PATH)
+
+
+def export_db_to_backup(db_path: Optional[str] = None, json_path: Optional[str] = None) -> None:
+    """Экспорт всех профилей из SQLite в JSON файл резервной копии."""
+    path = db_path or DB_PATH
+    if json_path is None:
+        target_path = os.path.abspath(path)
+        prod_path = os.path.abspath(DEFAULT_DB_PATH)
+        env_path = os.path.abspath(os.getenv("DATABASE_PATH", DEFAULT_DB_PATH))
+        if target_path != prod_path and target_path != env_path:
+            return
+        json_path = BACKUP_PATH
+    try:
+        with get_db(path) as conn:
+            cur = conn.execute("SELECT * FROM profiles ORDER BY id ASC;")
+            rows = cur.fetchall()
+            data = []
+            for r in rows:
+                data.append({
+                    "id": r["id"],
+                    "user_id": r["user_id"],
+                    "profile_name": r["profile_name"],
+                    "birth_dt": r["birth_dt"],
+                    "place_name": r["place_name"],
+                    "resolved_address": r["resolved_address"] or "",
+                    "lat": float(r["lat"]),
+                    "lon": float(r["lon"]),
+                    "tz_offset": float(r["tz_offset"]),
+                    "chart_data": r["chart_data"],
+                    "summary": r["summary"] or "",
+                    "is_active": int(r["is_active"]),
+                    "created_at": r["created_at"],
+                    "updated_at": r["updated_at"],
+                })
+        temp_path = json_path + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, json_path)
+        logger.debug(f"Резервная копия профилей обновлена: {json_path} ({len(data)} профилей)")
+    except Exception as e:
+        logger.error(f"Ошибка экспорта профилей в {json_path}: {e}")
+
+
+def restore_backup_to_db(db_path: Optional[str] = None, json_path: Optional[str] = None) -> int:
+    """Восстановление профилей из JSON резервной копии в SQLite, если таблица пуста."""
+    path = db_path or DB_PATH
+    if json_path is None:
+        target_path = os.path.abspath(path)
+        prod_path = os.path.abspath(DEFAULT_DB_PATH)
+        env_path = os.path.abspath(os.getenv("DATABASE_PATH", DEFAULT_DB_PATH))
+        if target_path != prod_path and target_path != env_path:
+            return 0
+        json_path = BACKUP_PATH
+    if not json_path or not os.path.exists(json_path):
+        return 0
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list) or not data:
+            return 0
+        restored = 0
+        with get_db(path) as conn:
+            cur = conn.execute("SELECT COUNT(*) FROM profiles;")
+            count = cur.fetchone()[0]
+            if count == 0:
+                for item in data:
+                    chart_str = item.get("chart_data")
+                    if isinstance(chart_str, dict):
+                        chart_str = json.dumps(chart_str, ensure_ascii=False)
+                    conn.execute("""
+                        INSERT INTO profiles (
+                            id, user_id, profile_name, birth_dt, place_name, resolved_address,
+                            lat, lon, tz_offset, chart_data, summary, is_active, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """, (
+                        item.get("id"),
+                        item["user_id"],
+                        item["profile_name"],
+                        str(item["birth_dt"]),
+                        item["place_name"],
+                        item.get("resolved_address", ""),
+                        float(item["lat"]),
+                        float(item["lon"]),
+                        float(item["tz_offset"]),
+                        chart_str,
+                        item.get("summary", ""),
+                        int(item.get("is_active", 1)),
+                        item.get("created_at", datetime.now(timezone.utc).isoformat()),
+                        item.get("updated_at", datetime.now(timezone.utc).isoformat())
+                    ))
+                    restored += 1
+                conn.commit()
+                logger.info(f"Восстановлено {restored} профилей из {json_path} в базу {path}")
+        return restored
+    except Exception as e:
+        logger.error(f"Ошибка восстановления профилей из {json_path}: {e}")
+        return 0
 
 
 def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
@@ -41,7 +140,7 @@ def get_db(db_path: Optional[str] = None):
 
 
 def init_db(db_path: Optional[str] = None) -> None:
-    """Инициализация таблиц базы данных и индексов."""
+    """Инициализация таблиц базы данных, индексов и восстановление из резервной копии."""
     path = db_path or DB_PATH
     with get_db(path) as conn:
         conn.execute("""
@@ -66,6 +165,11 @@ def init_db(db_path: Optional[str] = None) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_profiles_user_active ON profiles(user_id, is_active);")
         conn.commit()
     logger.info(f"База данных профилей инициализирована: {path}")
+
+    # Восстановление из JSON резервной копии, если база пуста
+    restore_backup_to_db(path)
+    # Актуализация JSON-бэкапа
+    export_db_to_backup(path)
 
 
 def _row_to_profile(row: sqlite3.Row) -> Dict[str, Any]:
@@ -182,6 +286,7 @@ def save_profile(
             ))
             if cur.rowcount > 0:
                 conn.commit()
+                export_db_to_backup(path)
                 return profile_id
 
         # Создание нового профиля (если profile_id is None или профиль для обновления не найден)
@@ -220,6 +325,7 @@ def save_profile(
             now_iso
         ))
         conn.commit()
+        export_db_to_backup(path)
         return cur.lastrowid
 
 
@@ -291,6 +397,7 @@ def set_active_profile(profile_id: int, user_id: int, db_path: Optional[str] = N
             (datetime.now(timezone.utc).isoformat(), profile_id, user_id)
         )
         conn.commit()
+        export_db_to_backup(path)
         return cur.rowcount > 0
 
 
@@ -316,6 +423,7 @@ def delete_profile(profile_id: int, user_id: int, db_path: Optional[str] = None)
                 conn.execute("UPDATE profiles SET is_active = 1 WHERE id = ?;", (next_row["id"],))
 
         conn.commit()
+        export_db_to_backup(path)
         return True
 
 
@@ -328,6 +436,7 @@ def rename_profile(profile_id: int, user_id: int, new_name: str, db_path: Option
             (new_name, datetime.now(timezone.utc).isoformat(), profile_id, user_id)
         )
         conn.commit()
+        export_db_to_backup(path)
         return cur.rowcount > 0
 
 
@@ -337,6 +446,7 @@ def clear_user_profiles(user_id: int, db_path: Optional[str] = None) -> int:
     with get_db(path) as conn:
         cur = conn.execute("DELETE FROM profiles WHERE user_id = ?;", (user_id,))
         conn.commit()
+        export_db_to_backup(path)
         return cur.rowcount
 
 

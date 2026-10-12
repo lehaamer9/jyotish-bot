@@ -6,8 +6,10 @@ Telegram-бот ИИ-Джьотиш Астролог.
 """
 import os
 import sys
+import re
 import logging
-from datetime import datetime
+from datetime import datetime, date, time
+from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 
 # Настройка кодировки консоли Windows для корректного вывода emoji
@@ -39,6 +41,8 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telegram.ext.filters import MessageFilter
+from input_parser import parse_one_line_profile
 
 from jyotish_engine import (
     compute_chart,
@@ -107,15 +111,41 @@ ASK_WAITING_QUESTION = 8
 TELEGRAM_MAX_MESSAGE_LENGTH = 4000
 
 
+class OneLineProfileFilter(MessageFilter):
+    """Фильтр сообщений, содержащих полные данные натальной карты одной строкой."""
+    def filter(self, message):
+        if not message or not message.text:
+            return False
+        if message.text.startswith("/"):
+            return False
+        text = message.text.strip()
+        menu_buttons = {
+            "🔮 Натальная карта", "👤 Мои профили", "👤 Профили", "📋 Мои данные",
+            "🔄 Сменить профиль", "⏳ Периоды Даша", "🪐 Саде-Сати", "🧘 Детектор йог",
+            "❓ Задать вопрос", "💞 Совместимость", "⭐️ Тарифы", "📖 Справка",
+            "➕ Добавить профиль", "➕ Новый профиль", "❌ Отмена", "Отмена"
+        }
+        if text in menu_buttons:
+            return False
+        parsed = parse_one_line_profile(text)
+        return bool(parsed and parsed.get("is_complete"))
+
+
+one_line_filter = OneLineProfileFilter()
+
+
 def get_user_natal_profile(user_id: int, context: ContextTypes.DEFAULT_TYPE = None):
     """
     Получить активный натальный профиль пользователя.
     Сначала проверяет кэш текущей сессии context.user_data,
     если его нет — загружает активный профиль из базы данных SQLite (jyotish.db).
     """
+    if not user_id:
+        return None
+
     if context is not None and context.user_data is not None:
         cached = context.user_data.get("natal_profile")
-        if cached:
+        if cached and isinstance(cached, dict) and cached.get("chart_data"):
             return cached
 
     profile = get_active_profile(user_id)
@@ -434,7 +464,11 @@ async def show_active_profile_card(update: Update, context: ContextTypes.DEFAULT
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Меню управления профилями пользователя."""
-    user_id = update.effective_user.id
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
     profiles = get_user_profiles(user_id)
     if not profiles:
         text = (
@@ -537,13 +571,202 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===================== ДИАЛОГ СОСТАВЛЕНИЯ КАРТЫ =====================
 
+async def process_and_save_chart(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    profile_name: Optional[str],
+    dob: date,
+    tob: time,
+    place_input: str,
+    editing_id: Optional[int] = None
+) -> int:
+    """Единая функция вычисления, сохранения и отображения натальной карты."""
+    dt = datetime.combine(dob, tob)
+    status_msg = await update.effective_message.reply_text("🌍 Определяю координаты и часовой пояс города...")
+
+    try:
+        lat, lon, tz_offset, address = resolve_location(place_input, target_date=dt)
+    except Exception as e:
+        if context is not None and context.user_data is not None:
+            context.user_data["temp_dob"] = dob
+            context.user_data["temp_tob"] = tob
+            if profile_name:
+                context.user_data["temp_profile_name"] = profile_name
+            context.user_data["editing_profile_id"] = editing_id
+
+        await status_msg.edit_text(
+            f"❌ Не удалось найти город '{place_input}'.\n"
+            f"Ошибка: {e}\n\n"
+            "Пожалуйста, укажи город ещё раз (или нажми /cancel):"
+        )
+        return WAITING_PLACE
+
+    await status_msg.edit_text("🧮 Вычисляю позиции планет и домов по NASA JPL эфемеридам...")
+
+    try:
+        user_id = (
+            update.effective_user.id
+            if update.effective_user
+            else (update.callback_query.from_user.id if update.callback_query else 0)
+        )
+        first_name = update.effective_user.first_name if update.effective_user else "User"
+        chart_name = profile_name or first_name or "User"
+        chart_data = compute_chart(
+            birth_dt=dt,
+            lat=lat,
+            lon=lon,
+            tz_offset=tz_offset,
+            name=chart_name
+        )
+        summary = format_chart_summary(chart_data)
+
+        # Сохраняем в базу данных SQLite (jyotish.db)
+        if not profile_name:
+            existing = get_user_profiles(user_id)
+            if not existing:
+                profile_name = "Мой гороскоп"
+            else:
+                profile_name = f"Профиль {len(existing) + 1}"
+
+        saved_id = save_profile(
+            user_id=user_id,
+            profile_name=profile_name,
+            birth_dt=dt,
+            place_name=place_input,
+            resolved_address=address,
+            lat=lat,
+            lon=lon,
+            tz_offset=tz_offset,
+            chart_data=chart_data,
+            summary=summary,
+            set_as_active=True,
+            profile_id=editing_id,
+        )
+
+        saved_profile = get_profile_by_id(saved_id, user_id)
+        if context is not None and context.user_data is not None:
+            context.user_data["natal_profile"] = saved_profile
+            context.user_data.pop("temp_dob", None)
+            context.user_data.pop("temp_tob", None)
+            context.user_data.pop("temp_profile_name", None)
+            context.user_data.pop("editing_profile_id", None)
+
+        # Отправляем астрономический расчёт бесплатно всем
+        await status_msg.delete()
+        header = f"🎉 *Профиль «{profile_name}» сохранён в базу!*\n\n"
+        await send_split_message(update, header + summary)
+
+    except Exception as e:
+        logger.exception("Ошибка расчёта карты")
+        await status_msg.edit_text(f"❌ Ошибка при расчёте карты: {e}")
+        return ConversationHandler.END
+
+    gemini = get_gemini_client()
+    if not gemini:
+        await update.effective_message.reply_text(
+            "ℹ️ *Астрономический расчёт готов!*\n\n"
+            "Для подключения глубокой текстовой трактовки карты от ИИ добавь `GEMINI_API_KEY` в файл `.env`.",
+            parse_mode="Markdown",
+            reply_markup=get_chart_inline_keyboard()
+        )
+        return ConversationHandler.END
+
+    # Проверка монетизации (если включен платный режим)
+    has_paid = context.user_data.get("paid_chart", False) if context and context.user_data else False
+    if PAYMENT_REQUIRED and not has_paid:
+        await update.effective_message.reply_text(
+            "🌟 *Натальная карта успешно построена!*\n\n"
+            "Хочешь получить подробную расшифровку судьбы, предназначения, сильных сторон и кармических уроков от ИИ-астролога?\n"
+            f"Стоимость разбора: **{PRICE_CHART_STARS} ⭐️**",
+            parse_mode="Markdown",
+            reply_markup=get_chart_inline_keyboard()
+        )
+        await send_chart_invoice(update, context)
+        return ConversationHandler.END
+
+    # Если оплачено или в бесплатном режиме:
+    ai_status = await update.effective_message.reply_text("🔮 ИИ-Астролог составляет подробную трактовку твоей карты...")
+    try:
+        interpretation = await gemini.interpret_chart(chart_data, summary)
+        await ai_status.delete()
+        await send_split_message(
+            update,
+            f"📜 *Интерпретация карты от ИИ:*\n\n{interpretation}",
+            reply_markup=get_chart_inline_keyboard()
+        )
+    except Exception as e:
+        logger.exception("Ошибка генерации Gemini")
+        await ai_status.edit_text(f"⚠️ Не удалось получить ответ ИИ: {e}")
+        await update.effective_message.reply_text(
+            "Выбери следующее действие:",
+            reply_markup=get_chart_inline_keyboard()
+        )
+
+    return ConversationHandler.END
+
+
+async def chart_one_line_direct(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Прямой ввод всех данных одной строкой без предварительного вызова команды."""
+    text = update.message.text.strip() if update.message and isinstance(getattr(update.message, "text", None), str) else ""
+    parsed = parse_one_line_profile(text)
+    if not parsed or not parsed.get("is_complete"):
+        return ConversationHandler.END
+
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
+    name = parsed.get("name")
+    if not name:
+        existing = get_user_profiles(user_id)
+        name = "Мой гороскоп" if not existing else f"Профиль {len(existing) + 1}"
+
+    return await process_and_save_chart(
+        update=update,
+        context=context,
+        profile_name=name,
+        dob=parsed["dob"],
+        tob=parsed["tob"],
+        place_input=parsed["city"],
+        editing_id=None
+    )
+
+
 async def newprofile_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /newprofile: начало создания дополнительного профиля."""
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
     context.user_data["editing_profile_id"] = None
+
+    msg_text = update.message.text.strip() if update.message and isinstance(getattr(update.message, "text", None), str) else ""
+    cmd_args = re.sub(r"^/newprofile\b\s*", "", msg_text, flags=re.IGNORECASE).strip()
+    if cmd_args:
+        parsed = parse_one_line_profile(cmd_args)
+        if parsed and parsed.get("is_complete"):
+            name = parsed.get("name")
+            if not name:
+                existing = get_user_profiles(user_id)
+                name = f"Профиль {len(existing) + 1}"
+            return await process_and_save_chart(
+                update=update,
+                context=context,
+                profile_name=name,
+                dob=parsed["dob"],
+                tob=parsed["tob"],
+                place_input=parsed["city"],
+                editing_id=None
+            )
+
     await update.effective_message.reply_text(
         "👤 *Создание нового астрологического профиля*\n\n"
-        "Введи имя или обозначение нового профиля\n"
-        "_(Например: `Жена`, `Муж`, `Сын`, `Партнёр`, `Анна`, `Друг`)_:\n\n"
+        "Введи данные одной строкой:\n"
+        "`Имя, ДД.ММ.ГГГГ, ЧЧ:ММ, Город`\n"
+        "_(например: `Анна, 20.08.1992, 14:15, Санкт-Петербург`)_\n\n"
+        "Или укажи только имя профиля _(например: `Жена`, `Анна`)_ для пошагового ввода.\n\n"
         "Для отмены набери /cancel",
         parse_mode="Markdown"
     )
@@ -557,8 +780,10 @@ async def newprofile_callback_start(update: Update, context: ContextTypes.DEFAUL
     context.user_data["editing_profile_id"] = None
     await query.message.reply_text(
         "👤 *Создание нового астрологического профиля*\n\n"
-        "Введи имя или обозначение нового профиля\n"
-        "_(Например: `Жена`, `Муж`, `Сын`, `Партнёр`, `Анна`, `Друг`)_:\n\n"
+        "Введи данные одной строкой:\n"
+        "`Имя, ДД.ММ.ГГГГ, ЧЧ:ММ, Город`\n"
+        "_(например: `Анна, 20.08.1992, 14:15, Санкт-Петербург`)_\n\n"
+        "Или укажи только имя профиля _(например: `Жена`, `Анна`)_ для пошагового ввода.\n\n"
         "Для отмены набери /cancel",
         parse_mode="Markdown"
     )
@@ -569,7 +794,11 @@ async def recalc_callback_start(update: Update, context: ContextTypes.DEFAULT_TY
     """Нажатие инлайн-кнопки «🔄 Пересчитать текущий»."""
     query = update.callback_query
     await query.answer()
-    user_id = update.effective_user.id
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
     active = get_user_natal_profile(user_id, context)
     name = active["profile_name"] if active else "Мой гороскоп"
     context.user_data["temp_profile_name"] = name
@@ -577,8 +806,9 @@ async def recalc_callback_start(update: Update, context: ContextTypes.DEFAULT_TY
 
     await query.message.reply_text(
         f"🔄 *Пересчёт профиля «{name}»*\n\n"
-        "🔮 *Шаг 1 из 3:* Введи новую дату рождения в формате `ДД.ММ.ГГГГ`\n"
-        "_(Например: `15.05.1990`)_\n\n"
+        "Введи новые данные одной строкой:\n"
+        "`ДД.ММ.ГГГГ, ЧЧ:ММ, Город` (например: `15.05.1990, 10:30, Москва`)\n\n"
+        "Или начни с даты рождения в формате `ДД.ММ.ГГГГ`:\n\n"
         "Для отмены набери /cancel",
         parse_mode="Markdown"
     )
@@ -586,20 +816,55 @@ async def recalc_callback_start(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def profile_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение имени нового профиля."""
-    name = update.message.text.strip()
-    if name.lower() in ("отмена", "❌ отмена", "/cancel"):
+    """Получение имени нового профиля или полной строки с данными."""
+    text = update.message.text.strip()
+    if text.lower() in ("отмена", "❌ отмена", "/cancel"):
         return await cancel_command(update, context)
 
-    if not name or len(name) > 50:
+    parsed = parse_one_line_profile(text)
+    if parsed and parsed.get("is_complete"):
+        name = parsed.get("name") or "Новый профиль"
+        editing_id = context.user_data.get("editing_profile_id")
+        return await process_and_save_chart(
+            update=update,
+            context=context,
+            profile_name=name,
+            dob=parsed["dob"],
+            tob=parsed["tob"],
+            place_input=parsed["city"],
+            editing_id=editing_id
+        )
+
+    if parsed and parsed.get("dob"):
+        name = parsed.get("name") or "Новый профиль"
+        context.user_data["temp_profile_name"] = name
+        context.user_data["temp_dob"] = parsed["dob"]
+        if parsed.get("tob"):
+            context.user_data["temp_tob"] = parsed["tob"]
+            await update.message.reply_text(
+                "📍 *Шаг 3 из 3:* Введи город рождения\n"
+                "_(Например: `Москва`, `Рим`, `Дели`, `Санкт-Петербург`)_:",
+                parse_mode="Markdown"
+            )
+            return WAITING_PLACE
+        await update.message.reply_text(
+            "⏰ *Шаг 2 из 3:* Введи точное время рождения в формате `ЧЧ:ММ` (24 часа)\n"
+            "_(Например: `10:30` или `23:45`)_:\n\n"
+            "Если точное время неизвестно, укажи `12:00`.",
+            parse_mode="Markdown"
+        )
+        return WAITING_TOB
+
+    if not text or len(text) > 50:
         await update.message.reply_text("Пожалуйста, укажи понятное имя (до 50 символов):")
         return WAITING_PROFILE_NAME
 
-    context.user_data["temp_profile_name"] = name
+    context.user_data["temp_profile_name"] = text
     await update.message.reply_text(
-        f"👤 Профиль: *{name}*\n\n"
-        "🔮 *Шаг 1 из 3:* Введи дату рождения в формате `ДД.ММ.ГГГГ`\n"
-        "_(Например: `15.05.1990`)_\n\n"
+        f"👤 Профиль: *{text}*\n\n"
+        "Введи данные одной строкой:\n"
+        "`ДД.ММ.ГГГГ, ЧЧ:ММ, Город` (например: `15.05.1990, 10:30, Москва`)\n\n"
+        "Или начни с даты рождения в формате `ДД.ММ.ГГГГ`:\n\n"
         "Для отмены набери /cancel",
         parse_mode="Markdown"
     )
@@ -608,7 +873,31 @@ async def profile_name_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def chart_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало составления натальной карты."""
-    user_id = update.effective_user.id
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
+
+    msg_text = update.message.text.strip() if update.message and isinstance(getattr(update.message, "text", None), str) else ""
+    cmd_args = re.sub(r"^/(?:chart|natal)\b\s*", "", msg_text, flags=re.IGNORECASE).strip()
+    if cmd_args:
+        parsed = parse_one_line_profile(cmd_args)
+        if parsed and parsed.get("is_complete"):
+            name = parsed.get("name")
+            if not name:
+                existing = get_user_profiles(user_id)
+                name = "Мой гороскоп" if not existing else f"Профиль {len(existing) + 1}"
+            return await process_and_save_chart(
+                update=update,
+                context=context,
+                profile_name=name,
+                dob=parsed["dob"],
+                tob=parsed["tob"],
+                place_input=parsed["city"],
+                editing_id=None
+            )
+
     active_profile = get_user_natal_profile(user_id, context)
     if active_profile:
         await show_active_profile_card(update, context, active_profile)
@@ -618,8 +907,11 @@ async def chart_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["editing_profile_id"] = None
 
     await update.effective_message.reply_text(
-        "🔮 *Шаг 1 из 3:* Введи дату рождения в формате `ДД.ММ.ГГГГ`\n"
-        "_(Например: `15.05.1990`)_\n\n"
+        "🔮 *Составление натальной карты*\n\n"
+        "Введи данные одной строкой:\n"
+        "`Имя, ДД.ММ.ГГГГ, ЧЧ:ММ, Город`\n"
+        "_(например: `Александр, 15.05.1990, 10:30, Москва`)_\n\n"
+        "Или начни с даты рождения (`ДД.ММ.ГГГГ`), и мы заполним данные пошагово.\n\n"
         "Для отмены набери /cancel",
         parse_mode="Markdown"
     )
@@ -627,17 +919,56 @@ async def chart_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def chart_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение даты рождения."""
+    """Получение даты рождения или строки с полными данными."""
     text = update.message.text.strip()
     if text.lower() in ("отмена", "❌ отмена", "/cancel"):
         return await cancel_command(update, context)
+
+    parsed = parse_one_line_profile(text)
+    if parsed and parsed.get("is_complete"):
+        name = parsed.get("name") or context.user_data.get("temp_profile_name")
+        editing_id = context.user_data.get("editing_profile_id")
+        return await process_and_save_chart(
+            update=update,
+            context=context,
+            profile_name=name,
+            dob=parsed["dob"],
+            tob=parsed["tob"],
+            place_input=parsed["city"],
+            editing_id=editing_id
+        )
+
+    if parsed and parsed.get("dob"):
+        if parsed.get("name"):
+            context.user_data["temp_profile_name"] = parsed["name"]
+        context.user_data["temp_dob"] = parsed["dob"]
+        if parsed.get("tob"):
+            context.user_data["temp_tob"] = parsed["tob"]
+            await update.message.reply_text(
+                "📍 *Шаг 3 из 3:* Введи город рождения\n"
+                "_(Например: `Москва`, `Рим`, `Дели`, `Алматы`, `Санкт-Петербург`)_:",
+                parse_mode="Markdown"
+            )
+            return WAITING_PLACE
+
+        await update.message.reply_text(
+            "⏰ *Шаг 2 из 3:* Введи точное время рождения в формате `ЧЧ:ММ` (24 часа)\n"
+            "_(Например: `10:30` или `23:45`)_\n\n"
+            "Если точное время неизвестно, укажи `12:00`.",
+            parse_mode="Markdown"
+        )
+        return WAITING_TOB
 
     try:
         dob = datetime.strptime(text, "%d.%m.%Y").date()
         context.user_data["temp_dob"] = dob
     except ValueError:
         await update.message.reply_text(
-            "⚠️ Неверный формат даты. Пожалуйста, укажи в виде `ДД.ММ.ГГГГ` (например: `15.05.1990`):",
+            "⚠️ Неверный формат даты.\n\n"
+            "Введи данные одной строкой:\n"
+            "`Имя, ДД.ММ.ГГГГ, ЧЧ:ММ, Город`\n"
+            "_(например: `Александр, 15.05.1990, 10:30, Москва`)_\n\n"
+            "Или укажи только дату в виде `ДД.ММ.ГГГГ` (например: `15.05.1990`):",
             parse_mode="Markdown"
         )
         return WAITING_DOB
@@ -687,126 +1018,29 @@ async def chart_place_received(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("Произошла ошибка сессии. Начни заново с /chart.")
         return ConversationHandler.END
 
-    dt = datetime.combine(dob, tob)
-    status_msg = await update.message.reply_text("🌍 Определяю координаты и часовой пояс города...")
+    profile_name = context.user_data.get("temp_profile_name")
+    editing_id = context.user_data.get("editing_profile_id")
+    return await process_and_save_chart(
+        update=update,
+        context=context,
+        profile_name=profile_name,
+        dob=dob,
+        tob=tob,
+        place_input=place_input,
+        editing_id=editing_id
+    )
 
-    try:
-        lat, lon, tz_offset, address = resolve_location(place_input, target_date=dt)
-    except Exception as e:
-        await status_msg.edit_text(
-            f"❌ Не удалось найти город '{place_input}'.\n"
-            f"Ошибка: {e}\n"
-            "Попробуй ещё раз указать город (или нажми /chart заново):"
-        )
-        return WAITING_PLACE
-
-    await status_msg.edit_text("🧮 Вычисляю позиции планет и домов по NASA JPL эфемеридам...")
-
-    try:
-        user_name = update.effective_user.first_name or "User"
-        chart_data = compute_chart(
-            birth_dt=dt,
-            lat=lat,
-            lon=lon,
-            tz_offset=tz_offset,
-            name=user_name
-        )
-        summary = format_chart_summary(chart_data)
-
-        # Сохраняем в постоянную базу данных SQLite (jyotish.db)
-        user_id = update.effective_user.id
-        profile_name = context.user_data.get("temp_profile_name")
-        if not profile_name:
-            existing = get_user_profiles(user_id)
-            if not existing:
-                profile_name = "Мой гороскоп"
-            else:
-                profile_name = f"Профиль {len(existing) + 1}"
-
-        editing_id = context.user_data.get("editing_profile_id")
-        saved_id = save_profile(
-            user_id=user_id,
-            profile_name=profile_name,
-            birth_dt=dt,
-            place_name=place_input,
-            resolved_address=address,
-            lat=lat,
-            lon=lon,
-            tz_offset=tz_offset,
-            chart_data=chart_data,
-            summary=summary,
-            set_as_active=True,
-            profile_id=editing_id,
-        )
-
-        saved_profile = get_profile_by_id(saved_id, user_id)
-        context.user_data["natal_profile"] = saved_profile
-
-        # Очищаем временные ключи
-        context.user_data.pop("temp_dob", None)
-        context.user_data.pop("temp_tob", None)
-        context.user_data.pop("temp_profile_name", None)
-        context.user_data.pop("editing_profile_id", None)
-
-        # Отправляем астрономический расчёт бесплатно всем
-        await status_msg.delete()
-        header = f"🎉 *Профиль «{profile_name}» сохранён в базу!*\n\n"
-        await send_split_message(update, header + summary)
-
-    except Exception as e:
-        logger.exception("Ошибка расчёта карты")
-        await status_msg.edit_text(f"❌ Ошибка при расчёте карты: {e}")
-        return ConversationHandler.END
-
-    gemini = get_gemini_client()
-    if not gemini:
-        await update.effective_message.reply_text(
-            "ℹ️ *Астрономический расчёт готов!*\n\n"
-            "Для подключения глубокой текстовой трактовки карты от ИИ добавь `GEMINI_API_KEY` в файл `.env`.",
-            parse_mode="Markdown",
-            reply_markup=get_chart_inline_keyboard()
-        )
-        return ConversationHandler.END
-
-    # Проверка монетизации (если включен платный режим)
-    has_paid = context.user_data.get("paid_chart", False)
-    if PAYMENT_REQUIRED and not has_paid:
-        await update.effective_message.reply_text(
-            "🌟 *Натальная карта успешно построена!*\n\n"
-            "Хочешь получить подробную расшифровку судьбы, предназначения, сильных сторон и кармических уроков от ИИ-астролога?\n"
-            f"Стоимость разбора: **{PRICE_CHART_STARS} ⭐️**",
-            parse_mode="Markdown",
-            reply_markup=get_chart_inline_keyboard()
-        )
-        await send_chart_invoice(update, context)
-        return ConversationHandler.END
-
-    # Если оплачено или в бесплатном режиме:
-    ai_status = await update.effective_message.reply_text("🔮 ИИ-Астролог составляет подробную трактовку твоей карты...")
-    try:
-        interpretation = await gemini.interpret_chart(chart_data, summary)
-        await ai_status.delete()
-        await send_split_message(
-            update,
-            f"📜 *Интерпретация карты от ИИ:*\n\n{interpretation}",
-            reply_markup=get_chart_inline_keyboard()
-        )
-    except Exception as e:
-        logger.exception("Ошибка генерации Gemini")
-        await ai_status.edit_text(f"⚠️ Не удалось получить ответ ИИ: {e}")
-        await update.effective_message.reply_text(
-            "Выбери следующее действие:",
-            reply_markup=get_chart_inline_keyboard()
-        )
-
-    return ConversationHandler.END
 
 
 # ===================== КОМАНДА ДАША (ПЕРИОДЫ) =====================
 
 async def dasha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать и интерпретировать периоды жизни Вимшоттари Даша."""
-    user_id = update.effective_user.id
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
     profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
@@ -1134,7 +1368,11 @@ async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Проверка текущего статуса Саде-Сати (транзит Сатурна по Луне)."""
-    user_id = update.effective_user.id
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
     profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
@@ -1197,7 +1435,11 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Найти йоги (мощные комбинации планет) в натальной карте."""
-    user_id = update.effective_user.id
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
     profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
@@ -1844,6 +2086,7 @@ def main():
             CommandHandler("newprofile", newprofile_start),
             MessageHandler(filters.Regex(r"^🔮 Натальная карта$"), chart_start),
             MessageHandler(filters.Regex(r"^(➕ Добавить профиль|➕ Новый профиль)$"), newprofile_start),
+            MessageHandler(one_line_filter, chart_one_line_direct),
             CallbackQueryHandler(newprofile_callback_start, pattern=r"^prof_add_start$"),
             CallbackQueryHandler(recalc_callback_start, pattern=r"^prof_recalc_start$"),
         ],

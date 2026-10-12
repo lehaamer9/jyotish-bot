@@ -6,6 +6,4 @@ __pycache__/
 scratch/
 de421.bsp
 hip_main.dat
-*.db
-*.sqlite*
-jyotish.db
+

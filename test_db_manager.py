@@ -19,6 +19,8 @@ from db_manager import (
     rename_profile,
     clear_user_profiles,
     count_user_profiles,
+    export_db_to_backup,
+    restore_backup_to_db,
 )
 
 
@@ -310,6 +312,42 @@ class TestDBManager(unittest.TestCase):
         nested_db = os.path.join(nested_dir, "nested_jyotish.db")
         init_db(nested_db)
         self.assertTrue(os.path.exists(nested_db))
+
+    def test_export_and_restore_backup(self):
+        # 1. Сохраняем профиль во временную БД
+        save_profile(
+            user_id=112233,
+            profile_name="Бэкап-тест",
+            birth_dt=datetime(1996, 6, 20, 8, 25),
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск, Россия",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={"planets": []},
+            summary="Тестовая карта",
+            db_path=self.db_path
+        )
+        json_backup = os.path.join(self.temp_dir.name, "custom_backup.json")
+        export_db_to_backup(db_path=self.db_path, json_path=json_backup)
+        self.assertTrue(os.path.exists(json_backup))
+
+        # 2. Создаем новую пустую БД и восстанавливаем в неё
+        new_db = os.path.join(self.temp_dir.name, "restored_jyotish.db")
+        init_db(new_db)
+        # Проверяем, что в новой БД изначально пусто
+        self.assertIsNone(get_active_profile(112233, db_path=new_db))
+
+        # Восстанавливаем из json_backup
+        restored_count = restore_backup_to_db(db_path=new_db, json_path=json_backup)
+        self.assertEqual(restored_count, 1)
+
+        # Проверяем, что профиль успешно восстановился
+        prof = get_active_profile(112233, db_path=new_db)
+        self.assertIsNotNone(prof)
+        self.assertEqual(prof["profile_name"], "Бэкап-тест")
+        self.assertEqual(prof["place_name"], "Горно-Алтайск")
+        self.assertEqual(prof["lat"], 51.95)
 
 
 if __name__ == "__main__":
