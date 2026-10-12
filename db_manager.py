@@ -460,3 +460,31 @@ def count_user_profiles(user_id: int, db_path: Optional[str] = None) -> int:
     with get_db(path) as conn:
         cur = conn.execute("SELECT COUNT(*) FROM profiles WHERE user_id = ?;", (user_id,))
         return cur.fetchone()[0]
+
+
+def get_system_stats(db_path: Optional[str] = None) -> Dict[str, Any]:
+    """Получить системную статистику для админ-панели."""
+    path = db_path or DB_PATH
+    with get_db(path) as conn:
+        cur_prof = conn.execute("SELECT COUNT(*) FROM profiles;")
+        total_profiles = cur_prof.fetchone()[0]
+        cur_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM profiles;")
+        total_users = cur_users.fetchone()[0]
+        cur_recent = conn.execute(
+            "SELECT user_id, profile_name, place_name, created_at FROM profiles ORDER BY id DESC LIMIT 5;"
+        )
+        recent_profiles = [
+            {
+                "user_id": r["user_id"],
+                "profile_name": r["profile_name"],
+                "place_name": r["place_name"],
+                "created_at": r["created_at"],
+            }
+            for r in cur_recent.fetchall()
+        ]
+        return {
+            "total_users": total_users,
+            "total_profiles": total_profiles,
+            "recent_profiles": recent_profiles,
+        }
+

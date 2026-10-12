@@ -412,7 +412,41 @@ class TestDBManager(unittest.TestCase):
         self.assertIsNotNone(p2)
         self.assertEqual(p2["profile_name"], "Новый из JSON")
 
+    def test_get_system_stats(self):
+        from db_manager import get_system_stats
+        save_profile(
+            user_id=101,
+            profile_name="Профиль А",
+            birth_dt=datetime(1996, 6, 20, 8, 25),
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={},
+            summary="",
+            db_path=self.db_path
+        )
+        save_profile(
+            user_id=102,
+            profile_name="Профиль Б",
+            birth_dt=datetime(1990, 1, 1, 12, 0),
+            place_name="Москва",
+            resolved_address="Москва",
+            lat=55.75,
+            lon=37.61,
+            tz_offset=3.0,
+            chart_data={},
+            summary="",
+            db_path=self.db_path
+        )
+        stats = get_system_stats(db_path=self.db_path)
+        self.assertEqual(stats["total_users"], 2)
+        self.assertEqual(stats["total_profiles"], 2)
+        self.assertEqual(len(stats["recent_profiles"]), 2)
+
 
 if __name__ == "__main__":
     import db_manager
     unittest.main()
+

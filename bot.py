@@ -61,6 +61,7 @@ from payment_helper import (
     send_ask_invoice,
     send_yoga_invoice,
     send_bundle_invoice,
+    send_test_invoice,
     precheckout_callback,
     PAYMENT_REQUIRED,
     PRICE_CHART_STARS,
@@ -81,7 +82,11 @@ from db_manager import (
     rename_profile,
     clear_user_profiles,
     count_user_profiles,
+    get_system_stats,
 )
+
+# Telegram ID администратора (Александр)
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "1275394562"))
 
 # Настройка логирования
 logging.basicConfig(
@@ -616,6 +621,69 @@ async def rename_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.effective_message.reply_text("Не удалось переименовать профиль. Попробуй позже.")
+
+
+def get_admin_inline_keyboard() -> InlineKeyboardMarkup:
+    """Инлайн-кнопки панели администратора."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔄 Обновить данные", callback_data="admin_refresh"),
+            InlineKeyboardButton("🧪 Тестовый платёж (1 ⭐️)", callback_data="admin_test_pay"),
+        ],
+        [
+            InlineKeyboardButton("📁 Скачать profiles.json", callback_data="admin_get_backup"),
+        ],
+    ])
+
+
+def format_admin_panel() -> str:
+    """Форматирование текста панели администратора."""
+    stats = get_system_stats()
+    status_pay = "🟢 Платный (XTR Stars)" if PAYMENT_REQUIRED else "🟡 Бесплатный (Демо-режим)"
+
+    recent_text = ""
+    if stats["recent_profiles"]:
+        for p in stats["recent_profiles"]:
+            name = p.get("profile_name") or "Без имени"
+            city = p.get("place_name") or "Не указан"
+            created = (p.get("created_at") or "")[:10]
+            recent_text += f"• *{name}* ({city}) — `{created}`\n"
+    else:
+        recent_text = "_Пока нет сохранённых профилей_\n"
+
+    return (
+        "👑 *Панель администратора Джьотиш-Бота*\n\n"
+        f"👥 *Пользователи и профили:*\n"
+        f"• Уникальных пользователей: *{stats['total_users']}*\n"
+        f"• Всего создано карт/профилей: *{stats['total_profiles']}*\n\n"
+        f"💳 *Статус монетизации:*\n"
+        f"• Текущий режим: *{status_pay}*\n"
+        f"• `PAYMENT_REQUIRED = {PAYMENT_REQUIRED}`\n"
+        f"• Тарифы: Карта `{PRICE_CHART_STARS}⭐️`, Даша `{PRICE_DASHA_STARS}⭐️`, "
+        f"Совместимость `{PRICE_COMPAT_STARS}⭐️`, Вопрос `{PRICE_ASK_STARS}⭐️`\n\n"
+        f"📋 *Последние профили в базе:*\n{recent_text}\n"
+        "💡 _Чтобы включить платный приём платежей на Render, установи в Environment Variables:_ "
+        "`PAYMENT_REQUIRED=true`"
+    )
+
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Панель администратора бота (доступна только создателю)."""
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
+    if user_id != ADMIN_USER_ID:
+        await update.effective_message.reply_text("⛔️ Команда доступна только администратору бота.")
+        return
+
+    text = format_admin_panel()
+    await update.effective_message.reply_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=get_admin_inline_keyboard()
+    )
 
 
 # ===================== ДИАЛОГ СОСТАВЛЕНИЯ КАРТЫ =====================
@@ -1910,6 +1978,14 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
         except Exception as e:
             await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
 
+    elif payload == "payload_test_payment":
+        await update.effective_message.reply_text(
+            "🎉 *Тестовый платёж на 1 ⭐️ успешно получен!*\n\n"
+            "Платёжная система Telegram Stars полностью исправна и готова к приёму реальных платежей.",
+            parse_mode="Markdown",
+            reply_markup=get_admin_inline_keyboard()
+        )
+
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена текущего ввода и возврат к главному меню."""
@@ -2065,6 +2141,46 @@ async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     elif data == "buy_bundle":
         await send_bundle_invoice(update, context)
+
+    # Админские действия
+    elif data == "admin_refresh":
+        if user_id != ADMIN_USER_ID:
+            await query.answer("⛔️ Доступ запрещён", show_alert=True)
+            return
+        await query.answer("Статистика обновлена")
+        text = format_admin_panel()
+        try:
+            await query.edit_message_text(
+                text,
+                parse_mode="Markdown",
+                reply_markup=get_admin_inline_keyboard()
+            )
+        except Exception:
+            pass
+
+    elif data == "admin_test_pay":
+        if user_id != ADMIN_USER_ID:
+            await query.answer("⛔️ Доступ запрещён", show_alert=True)
+            return
+        await query.answer("Отправляю тестовый инвойс на 1 ⭐️...")
+        await send_test_invoice(update, context)
+
+    elif data == "admin_get_backup":
+        if user_id != ADMIN_USER_ID:
+            await query.answer("⛔️ Доступ запрещён", show_alert=True)
+            return
+        await query.answer("Отправляю файл базы...")
+        backup_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profiles.json")
+        if os.path.exists(backup_file):
+            with open(backup_file, "rb") as f:
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=f,
+                    filename="profiles.json",
+                    caption="📁 Резервная копия базы профилей бота (JSON)"
+                )
+        else:
+            await query.message.reply_text("Файл бэкапа пока не найден.")
 
 
 async def handle_menu_text_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2253,6 +2369,7 @@ def main():
     app.add_handler(CommandHandler("dasha", dasha_command))
     app.add_handler(CommandHandler("sadesati", sadesati_command))
     app.add_handler(CommandHandler("yoga", yoga_command))
+    app.add_handler(CommandHandler("admin", admin_command))
 
     # Регистрация диалогов
     app.add_handler(chart_conv)

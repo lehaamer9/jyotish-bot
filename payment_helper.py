@@ -125,6 +125,22 @@ async def send_bundle_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+async def send_test_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправить тестовый инвойс на 1 Звезду (для проверки работы платежей админом)."""
+    chat_id = update.effective_chat.id
+    prices = [LabeledPrice(label="🧪 Тестовый платёж Stars", amount=1)]
+
+    await context.bot.send_invoice(
+        chat_id=chat_id,
+        title="🧪 Тестовый платёж (1 ⭐️)",
+        description="Проверка работы платёжной системы Telegram Stars. Спишет ровно 1 ⭐️.",
+        payload="payload_test_payment",
+        provider_token="",
+        currency="XTR",
+        prices=prices,
+    )
+
+
 async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Ответ на pre-checkout запрос Telegram.
@@ -140,9 +156,11 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "payload_ask_question",
         "payload_yoga_interpretation",
         "payload_bundle_360",
+        "payload_test_payment",
     )
 
     if payload in valid_payloads:
         await query.answer(ok=True)
     else:
         await query.answer(ok=False, error_message="Ошибка идентификатора заказа. Попробуйте снова.")
+

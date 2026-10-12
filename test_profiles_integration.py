@@ -456,6 +456,27 @@ class TestProfilesIntegration(unittest.TestCase):
         active = get_active_profile(self.user_id, db_path=self.db_path)
         self.assertEqual(active["profile_name"], "Новое Имя")
 
+    def test_admin_command_access(self):
+        import asyncio
+        # 1. Попытка не-админа
+        update_stranger = MagicMock()
+        update_stranger.effective_user.id = 999999999
+        update_stranger.effective_message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        asyncio.run(bot.admin_command(update_stranger, context_mock))
+        self.assertTrue(update_stranger.effective_message.reply_text.called)
+        self.assertIn("только администратору", update_stranger.effective_message.reply_text.call_args[0][0])
+
+        # 2. Попытка админа (Александр: 1275394562)
+        update_admin = MagicMock()
+        update_admin.effective_user.id = 1275394562
+        update_admin.effective_message.reply_text = AsyncMock()
+        asyncio.run(bot.admin_command(update_admin, context_mock))
+        self.assertTrue(update_admin.effective_message.reply_text.called)
+        reply_text = update_admin.effective_message.reply_text.call_args[0][0]
+        self.assertIn("Панель администратора", reply_text)
+
 
 if __name__ == "__main__":
     unittest.main()
+
