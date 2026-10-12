@@ -165,27 +165,34 @@ def _extract_ashtakavarga(av) -> Optional[dict]:
         return None
 
 
-def get_current_dasha(dashas: dict, now: Optional[datetime] = None) -> dict:
+def get_current_dasha(dashas_or_chart: dict, now: Optional[datetime] = None) -> dict:
     """Определить текущий период Маха-Даша и Антар-Даша."""
     if now is None:
         now = datetime.now()
 
+    dashas = dashas_or_chart.get("dashas", dashas_or_chart) if isinstance(dashas_or_chart, dict) else {}
     current = {"maha_dasha": None, "antar_dasha": None}
 
     for period in dashas.get("periods", []):
-        start = datetime.strptime(period["start"], "%d.%m.%Y")
-        end = datetime.strptime(period["end"], "%d.%m.%Y")
+        try:
+            start = datetime.strptime(period["start"], "%d.%m.%Y")
+            end = datetime.strptime(period["end"], "%d.%m.%Y")
+        except Exception:
+            continue
         if start <= now <= end:
             current["maha_dasha"] = {
                 "planet": period["planet"],
-                "planet_ru": period["planet_ru"],
+                "planet_ru": period.get("planet_ru", period["planet"]),
                 "start": period["start"],
                 "end": period["end"],
             }
             # Ищем антар-дашу
             for ad in period.get("antardashas", []):
-                ad_start = datetime.strptime(ad["start"], "%d.%m.%Y")
-                ad_end = datetime.strptime(ad["end"], "%d.%m.%Y")
+                try:
+                    ad_start = datetime.strptime(ad["start"], "%d.%m.%Y")
+                    ad_end = datetime.strptime(ad["end"], "%d.%m.%Y")
+                except Exception:
+                    continue
                 if ad_start <= now <= ad_end:
                     current["antar_dasha"] = ad
                     break
@@ -215,31 +222,41 @@ TRIKONA_HOUSES = [1, 5, 9]
 DHANA_HOUSES = [2, 5, 9, 11]
 
 
-def check_sade_sati(chart_data: dict) -> dict:
+def check_sade_sati(chart_or_moon_sign) -> dict:
     """Проверить статус Саде-Сати (транзит Сатурна относительно натальной Луны).
 
-    Саде-Сати = транзитный Сатурн в 12-м, 1-м или 2-м знаке от натальной Луны.
-    Возвращает: {"active": bool, "phase": str|None, "natal_moon_sign": str,
-                 "transit_saturn_sign": str, "description": str}
+    Принимает либо chart_data (dict), либо строку со знаком Луны (str).
+    Возвращает dict с полями: active, phase, phase_ru, saturn_sign, moon_sign, description.
     """
-    # Найти знак натальной Луны
-    natal_moon_sign = None
-    for p in chart_data.get("planets", []):
-        if p.get("name") == "Moon":
-            natal_moon_sign = p.get("sign")
-            break
+    if isinstance(chart_or_moon_sign, dict):
+        natal_moon_sign = None
+        for p in chart_or_moon_sign.get("planets", []):
+            if p.get("name") == "Moon":
+                natal_moon_sign = p.get("sign")
+                break
+    else:
+        natal_moon_sign = str(chart_or_moon_sign)
 
     if not natal_moon_sign or natal_moon_sign not in SIGNS_ORDER:
-        return {"active": False, "phase": None, "natal_moon_sign": "unknown",
-                "transit_saturn_sign": "unknown", "description": "Не удалось определить знак Луны."}
+        return {
+            "active": False, "phase": None, "phase_ru": None,
+            "natal_moon_sign": natal_moon_sign or "unknown",
+            "moon_sign": natal_moon_sign or "unknown",
+            "saturn_sign": "unknown", "transit_saturn_sign": "unknown",
+            "description": "Не удалось определить знак Луны."
+        }
 
     # Вычислить текущее положение транзитного Сатурна через skyfield
     transit_saturn_sign = _get_transit_saturn_sign()
 
     if not transit_saturn_sign:
-        return {"active": False, "phase": None, "natal_moon_sign": natal_moon_sign,
-                "transit_saturn_sign": "unknown",
-                "description": "Не удалось вычислить транзит Сатурна."}
+        return {
+            "active": False, "phase": None, "phase_ru": None,
+            "natal_moon_sign": natal_moon_sign,
+            "moon_sign": natal_moon_sign,
+            "saturn_sign": "unknown", "transit_saturn_sign": "unknown",
+            "description": "Не удалось вычислить транзит Сатурна."
+        }
 
     moon_idx = SIGNS_ORDER.index(natal_moon_sign)
     saturn_idx = SIGNS_ORDER.index(transit_saturn_sign)
@@ -250,8 +267,12 @@ def check_sade_sati(chart_data: dict) -> dict:
     result = {
         "natal_moon_sign": natal_moon_sign,
         "natal_moon_sign_ru": SIGN_NAMES_RU.get(natal_moon_sign, natal_moon_sign),
+        "moon_sign": natal_moon_sign,
+        "moon_sign_ru": SIGN_NAMES_RU.get(natal_moon_sign, natal_moon_sign),
         "transit_saturn_sign": transit_saturn_sign,
         "transit_saturn_sign_ru": SIGN_NAMES_RU.get(transit_saturn_sign, transit_saturn_sign),
+        "saturn_sign": transit_saturn_sign,
+        "saturn_sign_ru": SIGN_NAMES_RU.get(transit_saturn_sign, transit_saturn_sign),
     }
 
     if distance == 11:  # 12-й знак от Луны
@@ -586,45 +607,6 @@ def _get_current_saturn_sign() -> str:
 
     sign_index = int(sidereal_lon // 30)
     return SIGN_ORDER[sign_index]
-
-
-def check_sade_sati(natal_moon_sign: str) -> dict:
-    """
-    Проверить, идёт ли Саде-Сати для данного знака натальной Луны.
-    Саде-Сати = когда транзитный Сатурн в 12-м, 1-м или 2-м знаке от натальной Луны.
-    Возвращает dict с полями: active, phase, saturn_sign, moon_sign.
-    """
-    saturn_sign = _get_current_saturn_sign()
-    moon_idx = SIGN_ORDER.index(natal_moon_sign)
-    saturn_idx = SIGN_ORDER.index(saturn_sign)
-
-    # Вычисляем расстояние (по часовой) от натальной Луны к Сатурну
-    distance = (saturn_idx - moon_idx) % 12
-
-    result = {
-        "active": False,
-        "phase": None,
-        "phase_ru": None,
-        "saturn_sign": saturn_sign,
-        "saturn_sign_ru": SIGN_NAMES_RU.get(saturn_sign, saturn_sign),
-        "moon_sign": natal_moon_sign,
-        "moon_sign_ru": SIGN_NAMES_RU.get(natal_moon_sign, natal_moon_sign),
-    }
-
-    if distance == 11:  # 12-й знак от Луны (Луна = 1-й, значит 12-й = index - 1 = distance 11)
-        result["active"] = True
-        result["phase"] = "Rising"
-        result["phase_ru"] = "Восходящая фаза (Сатурн в 12-м знаке от Луны)"
-    elif distance == 0:  # 1-й знак = тот же знак что Луна
-        result["active"] = True
-        result["phase"] = "Peak"
-        result["phase_ru"] = "Пиковая фаза (Сатурн в знаке натальной Луны)"
-    elif distance == 1:  # 2-й знак от Луны
-        result["active"] = True
-        result["phase"] = "Setting"
-        result["phase_ru"] = "Завершающая фаза (Сатурн во 2-м знаке от Луны)"
-
-    return result
 
 
 def detect_yogas(chart_data: dict) -> list:

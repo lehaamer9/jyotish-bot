@@ -928,11 +928,14 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     await update.effective_message.reply_text(
-        "❓ *Задай вопрос ИИ-астрологу*\n\n"
-        "Напиши свой вопрос свободным текстом. Например:\n"
-        "• _Когда лучше менять работу?_\n"
-        "• _Подходит ли мне переезд за границу?_\n"
-        "• _Какая сфера карьеры мне подходит?_\n\n"
+        "❓ *Задай вопрос ИИ-астрологу (в т.ч. прогноз)*\n\n"
+        "Напиши свой вопрос свободным текстом. Бот сопоставит натальную карту с твоим текущим периодом (Даша) и транзитами!\n\n"
+        "Примеры вопросов:\n"
+        "• 💼 _«Стоит ли менять работу в 2026–2027 годах?»_\n"
+        "• ✈️ _«Благоприятен ли сейчас переезд за границу?»_\n"
+        "• 💍 _«Когда благоприятный период для брака или отношений?»_\n"
+        "• 💰 _«Что ждёт в финансовой сфере в текущий период?»_\n"
+        "• ⏳ _«Почему сейчас ощущение застоя и когда это закончится?»_\n\n"
         "Для отмены набери /cancel",
         parse_mode="Markdown"
     )
@@ -959,9 +962,46 @@ async def ask_question_received(update: Update, context: ContextTypes.DEFAULT_TY
     chart_data = profile["chart_data"]
     summary = profile["summary"]
 
+    # Рассчитываем прогностический контекст (текущая Даша и Саде-Сати)
+    forecast_context_parts = []
+    now = datetime.now()
+    forecast_context_parts.append(f"Текущая дата запроса: {now.strftime('%d.%m.%Y')}")
+
+    try:
+        curr_dasha = get_current_dasha(chart_data, now)
+        if curr_dasha and curr_dasha.get("maha_dasha"):
+            md = curr_dasha["maha_dasha"]
+            md_str = f"Махадаша: {md.get('planet_ru', md['planet'])} ({md['start']} — {md['end']})"
+            if curr_dasha.get("antar_dasha"):
+                ad = curr_dasha["antar_dasha"]
+                ad_str = f", Антардаша: {ad.get('planet_ru', ad['planet'])} ({ad['start']} — {ad['end']})"
+                md_str += ad_str
+            forecast_context_parts.append(f"Текущий планетарный период (Вимшоттари Даша): {md_str}")
+    except Exception as e:
+        logger.debug(f"Не удалось рассчитать дашу для /ask: {e}")
+
+    try:
+        ss_info = check_sade_sati(chart_data)
+        if ss_info:
+            if ss_info.get("active"):
+                forecast_context_parts.append(
+                    f"Транзит Саде-Сати (Сатурн): АКТИВЕН, фаза {ss_info.get('phase_ru', ss_info.get('phase'))}. "
+                    f"Натальная Луна в {ss_info.get('moon_sign_ru', ss_info.get('moon_sign'))}, Сатурн в {ss_info.get('saturn_sign_ru', ss_info.get('saturn_sign'))}."
+                )
+            else:
+                forecast_context_parts.append(
+                    f"Транзит Саде-Сати: НЕ активен (Сатурн в {ss_info.get('saturn_sign_ru', ss_info.get('saturn_sign'))}, Луна в {ss_info.get('moon_sign_ru', ss_info.get('moon_sign'))})."
+                )
+    except Exception as e:
+        logger.debug(f"Не удалось проверить Саде-Сати для /ask: {e}")
+
+    forecast_context = "\n".join(forecast_context_parts)
+
     status_msg = await update.effective_message.reply_text("🔮 ИИ-астролог анализирует твою карту и готовит ответ...")
     try:
-        answer = await gemini.interpret_ask_question(chart_data, summary, question)
+        answer = await gemini.interpret_ask_question(
+            chart_data, summary, question, forecast_context=forecast_context
+        )
         await status_msg.delete()
         await send_split_message(
             update,
