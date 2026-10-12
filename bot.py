@@ -66,6 +66,17 @@ from payment_helper import (
     PRICE_YOGA_STARS,
     PRICE_BUNDLE_STARS,
 )
+from db_manager import (
+    init_db,
+    save_profile,
+    get_active_profile,
+    get_user_profiles,
+    get_profile_by_id,
+    set_active_profile,
+    delete_profile,
+    clear_user_profiles,
+    count_user_profiles,
+)
 
 # Настройка логирования
 logging.basicConfig(
@@ -76,22 +87,41 @@ logger = logging.getLogger(__name__)
 
 # Состояния диалога для натальной карты
 (
+    WAITING_PROFILE_NAME,
     WAITING_DOB,
     WAITING_TOB,
     WAITING_PLACE,
-) = range(3)
+) = range(4)
 
 # Состояния диалога для совместимости (партнёр)
 (
+    COMPAT_SELECT_PARTNER,
     COMPAT_WAITING_DOB,
     COMPAT_WAITING_TOB,
     COMPAT_WAITING_PLACE,
-) = range(3, 6)
+) = range(4, 8)
 
 # Состояние диалога для экспресс-вопроса /ask
-ASK_WAITING_QUESTION = 6
+ASK_WAITING_QUESTION = 8
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4000
+
+
+def get_user_natal_profile(user_id: int, context: ContextTypes.DEFAULT_TYPE = None):
+    """
+    Получить активный натальный профиль пользователя.
+    Сначала проверяет кэш текущей сессии context.user_data,
+    если его нет — загружает активный профиль из базы данных SQLite (jyotish.db).
+    """
+    if context is not None and context.user_data is not None:
+        cached = context.user_data.get("natal_profile")
+        if cached:
+            return cached
+
+    profile = get_active_profile(user_id)
+    if profile and context is not None and context.user_data is not None:
+        context.user_data["natal_profile"] = profile
+    return profile
 
 
 def get_gemini_client():
@@ -144,7 +174,7 @@ def get_main_reply_keyboard():
         ["🔮 Натальная карта", "⏳ Периоды Даша"],
         ["🪐 Саде-Сати", "🧘 Детектор йог"],
         ["❓ Задать вопрос", "💞 Совместимость"],
-        ["⭐️ Тарифы", "📋 Мои данные"],
+        ["👤 Мои профили", "⭐️ Тарифы"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
@@ -153,7 +183,8 @@ def get_start_inline_keyboard():
     """Инлайн-кнопки приветствия /start."""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔮 Составить натальную карту", callback_data="nav_chart"),
+            InlineKeyboardButton("🔮 Натальная карта", callback_data="nav_chart"),
+            InlineKeyboardButton("👤 Мои профили", callback_data="prof_menu"),
         ],
         [
             InlineKeyboardButton("⭐️ Тарифы", callback_data="nav_prices"),
@@ -175,6 +206,9 @@ def get_chart_inline_keyboard():
         ],
         [
             InlineKeyboardButton("💞 Совместимость", callback_data="nav_compat"),
+            InlineKeyboardButton("👤 Профили", callback_data="prof_menu"),
+        ],
+        [
             InlineKeyboardButton("⭐️ Тарифы", callback_data="nav_prices"),
         ],
     ])
@@ -264,9 +298,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💞 Анализировать совместимость партнёров (*Аштакута / 8 факторов любви*)\n"
         "❓ Задавать вопросы ИИ-астрологу по своей карте\n"
         "🔄 Проверять период Саде-Сати (транзит Сатурна)\n"
-        "🧘 Находить мощные йоги в натальной карте\n\n"
+        "🧘 Находить мощные йоги в натальной карте\n"
+        "👥 Сохранять несколько профилей (для себя, партнёра, детей, семьи)\n\n"
         "📌 *Команды бота:*\n"
         "👉 /chart — составить натальную карту\n"
+        "👉 /profile — управление профилями (выбор, добавление, удаление)\n"
+        "👉 /newprofile — создать новый профиль\n"
         "👉 /dasha — периоды жизни (Вимшоттари Даша)\n"
         "👉 /compat — совместимость с партнёром\n"
         "👉 /ask — задать вопрос ИИ-астрологу\n"
@@ -274,7 +311,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👉 /yoga — найти йоги в карте\n"
         "👉 /prices — стоимость услуг в Звёздах Telegram (⭐️)\n"
         "👉 /mydata — посмотреть сохранённые данные\n"
-        "👉 /reset — сбросить данные\n"
+        "👉 /reset — сброс данных\n"
         "👉 /help — справка\n\n"
         "👇 *Выбери действие на кнопках ниже или нажми /chart:*"
     )
@@ -290,13 +327,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "📖 *Справка по Джьотиш-Боту:*\n\n"
         "🔹 /chart — Составление натальной карты (дата, время, город рождения).\n"
+        "🔹 /profile — Управление профилями (выбор активного, просмотр, удаление).\n"
+        "🔹 /newprofile — Создание дополнительного профиля (партнёр, родственники).\n"
         "🔹 /dasha — Разбор планетных периодов Вимшоттари Даша.\n"
         "🔹 /compat — Синастрия и совместимость по 8 ведическим показателям.\n"
         "🔹 /ask — Задать любой вопрос ИИ-астрологу по своей карте.\n"
         "🔹 /sadesati — Проверить, идёт ли период Саде-Сати (транзит Сатурна).\n"
         "🔹 /yoga — Найти мощные йоги (комбинации планет) в натальной карте.\n"
         "🔹 /prices — Тарифы на подробные ИИ-разборы (оплата в ⭐️ Telegram Stars).\n"
-        "🔹 /mydata — Показывает введённые дату, время и координаты.\n"
+        "🔹 /mydata — Показывает введённые дату, время и координаты активного профиля.\n"
         "🔹 /reset — Сброс сохранённых данных.\n"
         "🔹 /cancel — Отмена текущего шага ввода.\n\n"
         "💡 *Оплата:* Базовые расчёты бесплатны. Подробные трактовки оплачиваются в ⭐️ Telegram Stars прямо в приложении."
@@ -308,49 +347,78 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def prices_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Прайс-лист на услуги в Звёздах Telegram."""
+async def show_active_profile_card(update: Update, context: ContextTypes.DEFAULT_TYPE, profile: dict):
+    """Показать карточку активного профиля с быстрыми действиями."""
+    dt_str = profile["birth_dt"].strftime("%d.%m.%Y")
+    time_str = profile["birth_dt"].strftime("%H:%M")
     text = (
-        "⭐️ *Прайс-лист на ИИ-разборы (Telegram Stars):*\n\n"
-        f"🔮 **Полный разбор натальной карты:** `{PRICE_CHART_STARS} ⭐️`\n"
-        "  • Характер, Лагна, миссия души, карьера, финансы, отношения, персональные упайи.\n\n"
-        f"⏳ **Разбор периодов Вимшоттари Даша:** `{PRICE_DASHA_STARS} ⭐️`\n"
-        "  • Текущая Маха-Даша и Антар-Даша, уроки периода, точки роста, предостережения.\n\n"
-        f"💞 **Анализ совместимости (Аштакута):** `{PRICE_COMPAT_STARS} ⭐️`\n"
-        "  • 8 факторов гармонии, сексуальное притяжение (Йони), ментальное согласие, кармические узлы.\n\n"
-        f"❓ **Экспресс-вопрос ИИ-астрологу:** `{PRICE_ASK_STARS} ⭐️`\n"
-        "  • Задай любой вопрос по своей натальной карте и получи персональный ответ.\n\n"
-        f"🧘 **Детектор йог + ИИ-трактовка:** `{PRICE_YOGA_STARS} ⭐️`\n"
-        "  • Раджа-йога, Гаджакешари, Будхадитья, Дхана, Панча Махапуруша + разбор от ИИ.\n\n"
-        f"🌟 **Бандл «Вся судьба 360°»:** `{PRICE_BUNDLE_STARS} ⭐️`\n"
-        "  • Натальная карта + Даша + Йоги + 1 вопрос — всё в одном со скидкой!\n\n"
-        "🆓 *Бесплатно:* базовые расчёты, /sadesati (Саде-Сати).\n\n"
-        "✨ Оплата производится в 1 клик через официальные звёзды Telegram (Apple Pay / Google Pay / карты)."
+        f"🔮 *Активный профиль: «{profile['profile_name']}»*\n\n"
+        f"📅 Дата: `{dt_str}`\n"
+        f"⏰ Время: `{time_str}`\n"
+        f"📍 Место: `{profile['place_name']}`\n"
+        f"🌐 Координаты: `{profile['lat']:.4f}, {profile['lon']:.4f}` (UTC{profile['tz_offset']:+.1f})\n\n"
+        "Натальная карта для этого профиля уже сохранена! Выбери действие:"
     )
-    prices_keyboard = InlineKeyboardMarkup([
+    keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(f"🔮 Карта ({PRICE_CHART_STARS} ⭐️)", callback_data="buy_chart"),
-            InlineKeyboardButton(f"⏳ Даша ({PRICE_DASHA_STARS} ⭐️)", callback_data="buy_dasha"),
+            InlineKeyboardButton("📜 Показать карту", callback_data="prof_view_active"),
+            InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
         ],
         [
-            InlineKeyboardButton(f"💞 Совместимость ({PRICE_COMPAT_STARS} ⭐️)", callback_data="buy_compat"),
-            InlineKeyboardButton(f"❓ Вопрос ({PRICE_ASK_STARS} ⭐️)", callback_data="buy_ask"),
+            InlineKeyboardButton("👤 Мои профили", callback_data="prof_menu"),
+            InlineKeyboardButton("➕ Новый профиль", callback_data="prof_add_start"),
         ],
         [
-            InlineKeyboardButton(f"🧘 Йоги ({PRICE_YOGA_STARS} ⭐️)", callback_data="buy_yoga"),
-            InlineKeyboardButton(f"🌟 Бандл 360° ({PRICE_BUNDLE_STARS} ⭐️)", callback_data="buy_bundle"),
+            InlineKeyboardButton("🔄 Пересчитать этот", callback_data="prof_recalc_start"),
         ],
     ])
-    await update.effective_message.reply_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=prices_keyboard
-    )
+    await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Меню управления профилями пользователя."""
+    user_id = update.effective_user.id
+    profiles = get_user_profiles(user_id)
+    if not profiles:
+        text = (
+            "👤 *У тебя пока нет сохранённых профилей.*\n\n"
+            "Создай свой первый астрологический профиль с помощью команды /chart или кнопки ниже:"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔮 Создать натальную карту", callback_data="prof_add_start")],
+        ])
+        await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+        return
+
+    lines = ["👤 *Твои астрологические профили:*\n"]
+    buttons = []
+    for i, p in enumerate(profiles, 1):
+        status = "⭐️ [АКТИВЕН]" if p["is_active"] else "🔹"
+        dt_str = p["birth_dt"].strftime("%d.%m.%Y %H:%M")
+        lines.append(f"{i}. {status} *{p['profile_name']}*\n   📅 {dt_str} | 📍 {p['place_name']}")
+
+        btn_text = f"⭐️ {p['profile_name']} (выбран)" if p["is_active"] else f"👉 Выбрать «{p['profile_name']}»"
+        buttons.append([InlineKeyboardButton(btn_text, callback_data=f"prof_switch_{p['id']}")])
+
+    lines.append("\n_Нажми кнопку ниже, чтобы переключить профиль или добавить новый:_")
+
+    buttons.append([
+        InlineKeyboardButton("➕ Добавить профиль", callback_data="prof_add_start"),
+        InlineKeyboardButton("🗑 Удалить профиль", callback_data="prof_delete_menu"),
+    ])
+    buttons.append([
+        InlineKeyboardButton("📜 Показать карту", callback_data="prof_view_active"),
+        InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+    ])
+
+    keyboard = InlineKeyboardMarkup(buttons)
+    await update.effective_message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
 
 
 async def mydata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать сохранённые данные пользователя."""
-    profile = context.user_data.get("natal_profile")
+    """Показать сохранённые данные активного профиля."""
+    user_id = update.effective_user.id
+    profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
             "У тебя пока нет сохранённой натальной карты.\nНажми кнопку ниже или /chart, чтобы составить её!",
@@ -358,35 +426,138 @@ async def mydata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    all_profs = get_user_profiles(user_id)
     text = (
-        "📋 *Твои сохранённые данные:*\n\n"
+        f"📋 *Сохранённые данные профиля «{profile.get('profile_name', 'Мой гороскоп')}»:*\n\n"
         f"📅 Дата: `{profile['birth_dt'].strftime('%d.%m.%Y')}`\n"
         f"⏰ Время: `{profile['birth_dt'].strftime('%H:%M')}`\n"
         f"📍 Место: `{profile['place_name']}`\n"
-        f"🌐 Координаты: `{profile['lat']:.4f}, {profile['lon']:.4f}` (UTC{profile['tz_offset']:+.1f})\n\n"
-        "Чтобы пересчитать с новыми данными, используй /reset или /chart."
+        f"🌐 Координаты: `{profile['lat']:.4f}, {profile['lon']:.4f}` (UTC{profile['tz_offset']:+.1f})\n"
+        f"👥 Всего профилей в памяти: {len(all_profs)}\n\n"
+        "Чтобы посмотреть карту или сменить профиль, используй кнопки ниже:"
     )
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📜 Показать карту", callback_data="prof_view_active"),
+            InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+        ],
+        [
+            InlineKeyboardButton("👤 Все профили", callback_data="prof_menu"),
+            InlineKeyboardButton("➕ Новый профиль", callback_data="prof_add_start"),
+        ],
+    ])
     await update.effective_message.reply_text(
         text,
         parse_mode="Markdown",
-        reply_markup=get_chart_inline_keyboard()
+        reply_markup=keyboard
     )
 
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сбросить сохранённые данные."""
-    context.user_data.clear()
-    await update.effective_message.reply_text(
-        "Данные сброшены. Чтобы составить новую карту, нажми /chart или кнопку ниже:",
-        reply_markup=get_main_reply_keyboard()
+    """Сбросить сохранённые данные или профили."""
+    user_id = update.effective_user.id
+    profiles = get_user_profiles(user_id)
+    if not profiles:
+        context.user_data.clear()
+        await update.effective_message.reply_text(
+            "Данные сессии очищены. Профилей в базе не найдено. Чтобы создать карту, нажми /chart или кнопку ниже:",
+            reply_markup=get_main_reply_keyboard()
+        )
+        return
+
+    text = (
+        "⚠️ *Управление сбросом данных*\n\n"
+        f"В базе данных сохранено профилей: *{len(profiles)}*.\n"
+        "Что именно ты хочешь сделать?"
     )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Очистить кэш сессии", callback_data="reset_cache_only")],
+        [InlineKeyboardButton("🗑 Удалить ВСЕ профили из базы", callback_data="reset_all_confirm")],
+        [InlineKeyboardButton("👤 Перейти в управление профилями", callback_data="prof_menu")],
+    ])
+    await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 # ===================== ДИАЛОГ СОСТАВЛЕНИЯ КАРТЫ =====================
 
+async def newprofile_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /newprofile: начало создания дополнительного профиля."""
+    context.user_data["editing_profile_id"] = None
+    await update.effective_message.reply_text(
+        "👤 *Создание нового астрологического профиля*\n\n"
+        "Введи имя или обозначение нового профиля\n"
+        "_(Например: `Жена`, `Муж`, `Сын`, `Партнёр`, `Анна`, `Друг`)_:\n\n"
+        "Для отмены набери /cancel",
+        parse_mode="Markdown"
+    )
+    return WAITING_PROFILE_NAME
+
+
+async def newprofile_callback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Нажатие инлайн-кнопки «➕ Добавить профиль»."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["editing_profile_id"] = None
+    await query.message.reply_text(
+        "👤 *Создание нового астрологического профиля*\n\n"
+        "Введи имя или обозначение нового профиля\n"
+        "_(Например: `Жена`, `Муж`, `Сын`, `Партнёр`, `Анна`, `Друг`)_:\n\n"
+        "Для отмены набери /cancel",
+        parse_mode="Markdown"
+    )
+    return WAITING_PROFILE_NAME
+
+
+async def recalc_callback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Нажатие инлайн-кнопки «🔄 Пересчитать текущий»."""
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    active = get_user_natal_profile(user_id, context)
+    name = active["profile_name"] if active else "Мой гороскоп"
+    context.user_data["temp_profile_name"] = name
+    context.user_data["editing_profile_id"] = active["id"] if active else None
+
+    await query.message.reply_text(
+        f"🔄 *Пересчёт профиля «{name}»*\n\n"
+        "🔮 *Шаг 1 из 3:* Введи новую дату рождения в формате `ДД.ММ.ГГГГ`\n"
+        "_(Например: `15.05.1990`)_\n\n"
+        "Для отмены набери /cancel",
+        parse_mode="Markdown"
+    )
+    return WAITING_DOB
+
+
+async def profile_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение имени нового профиля."""
+    name = update.message.text.strip()
+    if not name or len(name) > 50:
+        await update.message.reply_text("Пожалуйста, укажи понятное имя (до 50 символов):")
+        return WAITING_PROFILE_NAME
+
+    context.user_data["temp_profile_name"] = name
+    await update.message.reply_text(
+        f"👤 Профиль: *{name}*\n\n"
+        "🔮 *Шаг 1 из 3:* Введи дату рождения в формате `ДД.ММ.ГГГГ`\n"
+        "_(Например: `15.05.1990`)_\n\n"
+        "Для отмены набери /cancel",
+        parse_mode="Markdown"
+    )
+    return WAITING_DOB
+
+
 async def chart_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало составления натальной карты."""
-    await update.message.reply_text(
+    user_id = update.effective_user.id
+    active_profile = get_user_natal_profile(user_id, context)
+    if active_profile:
+        await show_active_profile_card(update, context, active_profile)
+        return ConversationHandler.END
+
+    context.user_data["temp_profile_name"] = "Мой гороскоп"
+    context.user_data["editing_profile_id"] = None
+
+    await update.effective_message.reply_text(
         "🔮 *Шаг 1 из 3:* Введи дату рождения в формате `ДД.ММ.ГГГГ`\n"
         "_(Например: `15.05.1990`)_\n\n"
         "Для отмены набери /cancel",
@@ -474,22 +645,45 @@ async def chart_place_received(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         summary = format_chart_summary(chart_data)
 
-        # Сохраняем в профиль пользователя
-        context.user_data["natal_profile"] = {
-            "birth_dt": dt,
-            "place_name": place_input,
-            "resolved_address": address,
-            "lat": lat,
-            "lon": lon,
-            "tz_offset": tz_offset,
-            "chart_data": chart_data,
-            "summary": summary,
-        }
+        # Сохраняем в постоянную базу данных SQLite (jyotish.db)
+        user_id = update.effective_user.id
+        profile_name = context.user_data.get("temp_profile_name")
+        if not profile_name:
+            existing = get_user_profiles(user_id)
+            if not existing:
+                profile_name = "Мой гороскоп"
+            else:
+                profile_name = f"Профиль {len(existing) + 1}"
+
+        editing_id = context.user_data.get("editing_profile_id")
+        saved_id = save_profile(
+            user_id=user_id,
+            profile_name=profile_name,
+            birth_dt=dt,
+            place_name=place_input,
+            resolved_address=address,
+            lat=lat,
+            lon=lon,
+            tz_offset=tz_offset,
+            chart_data=chart_data,
+            summary=summary,
+            set_as_active=True,
+            profile_id=editing_id,
+        )
+
+        saved_profile = get_profile_by_id(saved_id, user_id)
+        context.user_data["natal_profile"] = saved_profile
+
+        # Очищаем временные ключи
+        context.user_data.pop("temp_dob", None)
+        context.user_data.pop("temp_tob", None)
+        context.user_data.pop("temp_profile_name", None)
+        context.user_data.pop("editing_profile_id", None)
 
         # Отправляем астрономический расчёт бесплатно всем
         await status_msg.delete()
-        chart_buttons = get_chart_inline_keyboard()
-        await send_split_message(update, summary)
+        header = f"🎉 *Профиль «{profile_name}» сохранён в базу!*\n\n"
+        await send_split_message(update, header + summary)
 
     except Exception as e:
         logger.exception("Ошибка расчёта карты")
@@ -544,7 +738,8 @@ async def chart_place_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def dasha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать и интерпретировать периоды жизни Вимшоттари Даша."""
-    profile = context.user_data.get("natal_profile")
+    user_id = update.effective_user.id
+    profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
             "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
@@ -554,7 +749,8 @@ async def dasha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chart_data = profile["chart_data"]
     summary = profile["summary"]
-    dasha_text = format_dasha_periods(chart_data)
+    dasha_raw = format_dasha_periods(chart_data)
+    dasha_text = f"👤 *Профиль: «{profile.get('profile_name', 'Мой гороскоп')}»*\n\n" + dasha_raw
 
     gemini = get_gemini_client()
     if not gemini:
@@ -601,22 +797,120 @@ async def dasha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def compat_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало проверки совместимости."""
-    my_profile = context.user_data.get("natal_profile")
+    user_id = update.effective_user.id
+    my_profile = get_user_natal_profile(user_id, context)
     if not my_profile:
-        await update.message.reply_text(
-            "Для анализа совместимости сначала нужны твои данные!\n"
+        await update.effective_message.reply_text(
+            "Для анализа совместимости сначала нужен твой сохранённый профиль!\n"
             "Нажми /chart, чтобы составить свою карту, затем вернись в /compat."
         )
         return ConversationHandler.END
 
-    await update.message.reply_text(
+    all_profs = get_user_profiles(user_id)
+    other_profs = [p for p in all_profs if p["id"] != my_profile["id"]]
+
+    if other_profs:
+        text = (
+            "💞 *Анализ совместимости партнёров (Кута / Аштакута)*\n\n"
+            f"Твой активный профиль: *«{my_profile['profile_name']}»* "
+            f"({my_profile['birth_dt'].strftime('%d.%m.%Y')}, {my_profile['place_name']}).\n\n"
+            "Выбери второго человека из сохранённых профилей или введи новые данные:"
+        )
+        buttons = []
+        for p in other_profs:
+            buttons.append([InlineKeyboardButton(f"💞 {p['profile_name']} ({p['birth_dt'].strftime('%d.%m.%Y')})", callback_data=f"compat_p_{p['id']}")])
+        buttons.append([InlineKeyboardButton("✏️ Ввести новые данные вручную", callback_data="compat_p_manual")])
+        keyboard = InlineKeyboardMarkup(buttons)
+        await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+        return COMPAT_SELECT_PARTNER
+
+    await update.effective_message.reply_text(
         "💞 *Анализ совместимости партнёров (Кута / Аштакута)*\n\n"
-        "Твоя натальная карта уже сохранена.\n"
+        f"Твой профиль (*«{my_profile['profile_name']}»*) уже сохранён.\n"
         "Теперь введи данные *партнёра*.\n\n"
-        "📅 *Шаг 1 из 3:* Дата рождения партнёра `ДД.ММ.ГГГГ` (например: `20.08.1992`):",
+        "📅 *Шаг 1 из 3:* Дата рождения партнёра `ДД.ММ.ГГГГ` (например: `20.08.1992`):\n\n"
+        "Для отмены набери /cancel",
         parse_mode="Markdown"
     )
     return COMPAT_WAITING_DOB
+
+
+async def compat_partner_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Выбор партнёра из сохранённых профилей или переход к ручному вводу."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = update.effective_user.id
+    my_profile = get_user_natal_profile(user_id, context)
+
+    if data == "compat_p_manual":
+        await query.message.reply_text(
+            "📅 *Шаг 1 из 3:* Введи дату рождения партнёра `ДД.ММ.ГГГГ` (например: `20.08.1992`):\n\n"
+            "Для отмены набери /cancel",
+            parse_mode="Markdown"
+        )
+        return COMPAT_WAITING_DOB
+
+    if data.startswith("compat_p_"):
+        partner_id = int(data.split("compat_p_")[1])
+        partner_profile = get_profile_by_id(partner_id, user_id)
+        if not partner_profile:
+            await query.message.reply_text("Профиль партнёра не найден. Попробуй снова: /compat")
+            return ConversationHandler.END
+
+        partner_chart = partner_profile["chart_data"]
+        partner_summary = partner_profile["summary"]
+        context.user_data["partner_chart"] = partner_chart
+        context.user_data["partner_summary"] = partner_summary
+
+        status_msg = await query.message.reply_text(
+            f"💞 Сопоставляю карты *{my_profile['profile_name']}* и *{partner_profile['profile_name']}*..."
+        )
+
+        gemini = get_gemini_client()
+        if not gemini:
+            await status_msg.edit_text(
+                "ℹ️ Карты обоих партнёров загружены!\n"
+                "Для анализа совместимости от ИИ добавь `GEMINI_API_KEY` в `.env`."
+            )
+            return ConversationHandler.END
+
+        has_paid = context.user_data.get("paid_compat", False)
+        if PAYMENT_REQUIRED and not has_paid:
+            await status_msg.edit_text(
+                f"💞 *Карты обоих партнёров сопоставлены ({my_profile['profile_name']} + {partner_profile['profile_name']})!*\n\n"
+                "Чтобы запустить детальный анализ синастрии по 8 факторам ведической гармонии (Аштакута) от ИИ:\n"
+                f"Стоимость разбора: **{PRICE_COMPAT_STARS} ⭐️**",
+                parse_mode="Markdown"
+            )
+            await send_compat_invoice(update, context)
+            return ConversationHandler.END
+
+        try:
+            result = await gemini.interpret_compatibility(
+                chart1_data=my_profile["chart_data"],
+                chart1_summary=my_profile["summary"],
+                chart2_data=partner_chart,
+                chart2_summary=partner_summary,
+            )
+            await status_msg.delete()
+            header = f"💘 *Совместимость: {my_profile['profile_name']} ❤️ {partner_profile['profile_name']}*\n\n"
+            await send_split_message(
+                update,
+                header + result,
+                reply_markup=get_compat_inline_keyboard()
+            )
+        except Exception as e:
+            logger.exception("Ошибка совместимости")
+            await status_msg.edit_text(f"⚠️ Ошибка при анализе: {e}")
+            await update.effective_message.reply_text(
+                "Выбери следующее действие:",
+                reply_markup=get_compat_inline_keyboard()
+            )
+
+        return ConversationHandler.END
+
+    return ConversationHandler.END
 
 
 async def compat_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -664,7 +958,7 @@ async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TY
     place_input = update.message.text.strip()
     dob = context.user_data.get("compat_dob")
     tob = context.user_data.get("compat_tob")
-    my_profile = context.user_data.get("natal_profile")
+    my_profile = get_user_natal_profile(update.effective_user.id, context)
 
     if not dob or not tob or not my_profile:
         await update.message.reply_text("Сессия истекла. Начни заново с /compat.")
@@ -739,7 +1033,8 @@ async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Проверка текущего статуса Саде-Сати (транзит Сатурна по Луне)."""
-    profile = context.user_data.get("natal_profile")
+    user_id = update.effective_user.id
+    profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
             "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
@@ -751,6 +1046,7 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         chart_data = profile["chart_data"]
         result = check_sade_sati(chart_data)
+        prof_title = f" (Профиль: «{profile.get('profile_name', 'Мой гороскоп')}»)"
 
         if result["active"]:
             phase_names = {
@@ -760,7 +1056,7 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             phase_text = phase_names.get(result["phase"], result["phase"])
             text = (
-                "🪐 *Саде-Сати — АКТИВНА!*\n\n"
+                f"🪐 *Саде-Сати — АКТИВНА!*{prof_title}\n\n"
                 f"🌙 Твоя натальная Луна: *{result['natal_moon_sign']}*\n"
                 f"🪐 Транзитный Сатурн: *{result['saturn_sign']}*\n\n"
                 f"📍 Фаза: {phase_text}\n\n"
@@ -771,7 +1067,7 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             text = (
-                "🪐 *Саде-Сати — НЕ активна*\n\n"
+                f"🪐 *Саде-Сати — НЕ активна*{prof_title}\n\n"
                 f"🌙 Твоя натальная Луна: *{result['natal_moon_sign']}*\n"
                 f"🪐 Транзитный Сатурн: *{result['saturn_sign']}*\n\n"
                 "✅ Сейчас период Саде-Сати не затрагивает твою Луну. "
@@ -800,7 +1096,8 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Найти йоги (мощные комбинации планет) в натальной карте."""
-    profile = context.user_data.get("natal_profile")
+    user_id = update.effective_user.id
+    profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
             "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
@@ -813,12 +1110,12 @@ async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.effective_message.reply_text("🧘 Анализирую натальную карту на наличие йог...")
     try:
         yogas = detect_yogas(chart_data)
-
         active_yogas = [y for y in yogas if y.get("active", False)]
+        prof_name = profile.get("profile_name", "Мой гороскоп")
 
         if not active_yogas:
             await status_msg.edit_text(
-                "🧘 *Детектор йог*\n\n"
+                f"🧘 *Детектор йог — Профиль «{prof_name}»*\n\n"
                 "В карте не обнаружено классических йог из базового набора.\n"
                 "Это не означает слабую карту — многие благоприятные комбинации "
                 "требуют более глубокого анализа варг (дробных карт).",
@@ -839,7 +1136,8 @@ async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             yoga_lines.append(f"✨ *{name}*\n   {desc}\n   🪐 Планеты: {planets}")
 
         yoga_text = (
-            f"🧘 *Найдено йог: {len(active_yogas)}*\n\n"
+            f"🧘 *Детектор йог — Профиль «{prof_name}»*\n"
+            f"Найдено йог: {len(active_yogas)}\n\n"
             + "\n\n".join(yoga_lines)
         )
 
@@ -899,7 +1197,8 @@ async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало диалога экспресс-вопроса ИИ-астрологу."""
-    profile = context.user_data.get("natal_profile")
+    user_id = update.effective_user.id
+    profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
             "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
@@ -927,8 +1226,9 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_ask_invoice(update, context)
         return ConversationHandler.END
 
+    prof_name = profile.get("profile_name", "Мой гороскоп")
     await update.effective_message.reply_text(
-        "❓ *Задай вопрос ИИ-астрологу (в т.ч. прогноз)*\n\n"
+        f"❓ *Задай вопрос ИИ-астрологу (Профиль: «{prof_name}»)*\n\n"
         "Напиши свой вопрос свободным текстом. Бот сопоставит натальную карту с твоим текущим периодом (Даша) и транзитами!\n\n"
         "Примеры вопросов:\n"
         "• 💼 _«Стоит ли менять работу в 2026–2027 годах?»_\n"
@@ -945,7 +1245,8 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_question_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение вопроса и генерация ответа от ИИ-астролога."""
     question = update.message.text.strip()
-    profile = context.user_data.get("natal_profile")
+    user_id = update.effective_user.id
+    profile = get_user_natal_profile(user_id, context)
 
     if not profile:
         await update.effective_message.reply_text(
@@ -1039,7 +1340,8 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
     )
 
     gemini = get_gemini_client()
-    profile = context.user_data.get("natal_profile")
+    user_id = update.effective_user.id
+    profile = get_user_natal_profile(user_id, context)
 
     if not gemini or not profile:
         await update.message.reply_text("Спасибо за оплату! Твой премиум-статус активирован.")
@@ -1169,23 +1471,90 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===================== НАВИГАЦИОННЫЕ И ИНЛАЙН ХЕНДЛЕРЫ =====================
 
 async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Единый диспетчер для навигационных и платёжных инлайн-кнопок."""
+    """Единый диспетчер для навигационных, профильных и платёжных инлайн-кнопок."""
     query = update.callback_query
     await query.answer()
     data = query.data
+    user_id = update.effective_user.id
 
     logger.info(f"Нажата инлайн-кнопка: {data}")
 
-    # Навигационные переходы
-    if data == "nav_chart":
-        profile = context.user_data.get("natal_profile")
-        if profile:
+    # Управление профилями
+    if data == "prof_menu":
+        await profile_command(update, context)
+
+    elif data.startswith("prof_switch_"):
+        prof_id = int(data.split("prof_switch_")[1])
+        if set_active_profile(prof_id, user_id):
+            new_active = get_profile_by_id(prof_id, user_id)
+            context.user_data["natal_profile"] = new_active
             await query.message.reply_text(
-                "🔮 Твоя натальная карта уже составлена. Вот твои данные:\n"
-                "(Если хочешь пересчитать с новой датой — нажми /reset)",
-                reply_markup=get_chart_inline_keyboard()
+                f"✅ Активный профиль переключён на *«{new_active['profile_name']}»*!\n\n"
+                "Теперь все расчёты (/chart, /dasha, /sadesati, /yoga, /ask) работают для этого человека.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("📜 Показать карту", callback_data="prof_view_active"),
+                        InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+                    ],
+                    [
+                        InlineKeyboardButton("👤 Все профили", callback_data="prof_menu"),
+                        InlineKeyboardButton("⭐️ Тарифы", callback_data="nav_prices"),
+                    ],
+                ])
             )
-            await mydata_command(update, context)
+        else:
+            await query.message.reply_text("Не удалось переключить профиль. Открой /profile.")
+
+    elif data == "prof_view_active":
+        active = get_user_natal_profile(user_id, context)
+        if not active:
+            await query.message.reply_text("Профиль не найден. Начни с /chart.")
+            return
+        header = f"👤 *Натальная карта профиля «{active['profile_name']}»*\n\n"
+        await send_split_message(update, header + active["summary"], reply_markup=get_chart_inline_keyboard())
+
+    elif data == "prof_delete_menu":
+        profiles = get_user_profiles(user_id)
+        if not profiles:
+            await query.message.reply_text("У тебя нет сохранённых профилей.")
+            return
+        buttons = []
+        for p in profiles:
+            buttons.append([InlineKeyboardButton(f"❌ Удалить «{p['profile_name']}»", callback_data=f"prof_del_{p['id']}")])
+        buttons.append([InlineKeyboardButton("🔙 Назад к профилям", callback_data="prof_menu")])
+        await query.message.reply_text(
+            "🗑 *Выбери профиль для удаления:*\n_Внимание: удаление необратимо._",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+    elif data.startswith("prof_del_"):
+        prof_id = int(data.split("prof_del_")[1])
+        deleted_prof = get_profile_by_id(prof_id, user_id)
+        name = deleted_prof["profile_name"] if deleted_prof else "Профиль"
+        if delete_profile(prof_id, user_id):
+            new_active = get_active_profile(user_id)
+            context.user_data["natal_profile"] = new_active
+            await query.message.reply_text(f"🗑 Профиль *«{name}»* успешно удалён.", parse_mode="Markdown")
+            await profile_command(update, context)
+        else:
+            await query.message.reply_text("Не удалось удалить профиль. Возможно, он уже был удалён.")
+
+    elif data == "reset_cache_only":
+        context.user_data.clear()
+        await query.message.reply_text("🔄 Кэш текущей сессии очищен. Профили в базе данных сохранены!")
+
+    elif data == "reset_all_confirm":
+        clear_user_profiles(user_id)
+        context.user_data.clear()
+        await query.message.reply_text("🗑 Все твои астрологические профили полностью удалены из базы данных.")
+
+    # Навигационные переходы
+    elif data == "nav_chart":
+        profile = get_user_natal_profile(user_id, context)
+        if profile:
+            await show_active_profile_card(update, context, profile)
         else:
             await chart_start(update, context)
 
@@ -1236,12 +1605,15 @@ async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_menu_text_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик нажатий на постоянную нижнюю клавиатуру (ReplyKeyboardMarkup)."""
     text = update.message.text.strip() if update.message and update.message.text else ""
+    user_id = update.effective_user.id
     if text == "🔮 Натальная карта":
-        profile = context.user_data.get("natal_profile")
+        profile = get_user_natal_profile(user_id, context)
         if profile:
-            await mydata_command(update, context)
+            return await show_active_profile_card(update, context, profile)
         else:
             return await chart_start(update, context)
+    elif text in ("👤 Мои профили", "👤 Профили", "📋 Мои данные"):
+        return await profile_command(update, context)
     elif text == "⏳ Периоды Даша":
         return await dasha_command(update, context)
     elif text == "🪐 Саде-Сати":
@@ -1254,14 +1626,14 @@ async def handle_menu_text_button(update: Update, context: ContextTypes.DEFAULT_
         return await compat_start(update, context)
     elif text == "⭐️ Тарифы":
         return await prices_command(update, context)
-    elif text == "📋 Мои данные":
-        return await mydata_command(update, context)
 
 
 async def post_init(application: Application) -> None:
     """Регистрация списка команд в системном меню Telegram (кнопка [/] Меню)."""
     commands = [
         BotCommand("chart", "🔮 Составить натальную карту"),
+        BotCommand("profile", "👤 Управление профилями"),
+        BotCommand("newprofile", "➕ Добавить новый профиль"),
         BotCommand("dasha", "⏳ Периоды жизни (Даша)"),
         BotCommand("sadesati", "🪐 Калькулятор Саде-Сати"),
         BotCommand("yoga", "🧘 Детектор йог"),
@@ -1326,6 +1698,7 @@ def warmup_ephemeris():
 # ===================== ТОЧКА ВХОДА =====================
 
 def main():
+    init_db()
     start_health_server()
     warmup_ephemeris()
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -1352,14 +1725,19 @@ def main():
         entry_points=[
             CommandHandler("chart", chart_start),
             CommandHandler("natal", chart_start),
+            CommandHandler("newprofile", newprofile_start),
             MessageHandler(filters.Regex(r"^🔮 Натальная карта$"), chart_start),
+            CallbackQueryHandler(newprofile_callback_start, pattern=r"^prof_add_start$"),
+            CallbackQueryHandler(recalc_callback_start, pattern=r"^prof_recalc_start$"),
         ],
         states={
+            WAITING_PROFILE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, profile_name_received)],
             WAITING_DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, chart_dob_received)],
             WAITING_TOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, chart_tob_received)],
             WAITING_PLACE: [MessageHandler(filters.TEXT & ~filters.COMMAND, chart_place_received)],
         },
         fallbacks=common_fallbacks,
+        allow_reentry=True,
     )
 
     # ConversationHandler для совместимости
@@ -1369,11 +1747,15 @@ def main():
             MessageHandler(filters.Regex(r"^💞 Совместимость$"), compat_start),
         ],
         states={
+            COMPAT_SELECT_PARTNER: [
+                CallbackQueryHandler(compat_partner_selected, pattern=r"^compat_p_"),
+            ],
             COMPAT_WAITING_DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, compat_dob_received)],
             COMPAT_WAITING_TOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, compat_tob_received)],
             COMPAT_WAITING_PLACE: [MessageHandler(filters.TEXT & ~filters.COMMAND, compat_place_received)],
         },
         fallbacks=common_fallbacks,
+        allow_reentry=True,
     )
 
     # ConversationHandler для экспресс-вопроса /ask
@@ -1386,12 +1768,16 @@ def main():
             ASK_WAITING_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_question_received)],
         },
         fallbacks=common_fallbacks,
+        allow_reentry=True,
     )
 
     # Регистрация команд
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("prices", prices_command))
+    app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("profiles", profile_command))
+    app.add_handler(CommandHandler("newprofile", newprofile_start))
     app.add_handler(CommandHandler("mydata", mydata_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("dasha", dasha_command))
@@ -1407,7 +1793,7 @@ def main():
     app.add_handler(CallbackQueryHandler(inline_nav_callback))
 
     # Регистрация нажатий на постоянную нижнюю клавиатуру
-    MENU_BUTTON_REGEX = r"^(⏳ Периоды Даша|🪐 Саде-Сати|🧘 Детектор йог|⭐️ Тарифы|📋 Мои данные)$"
+    MENU_BUTTON_REGEX = r"^(⏳ Периоды Даша|🪐 Саде-Сати|🧘 Детектор йог|⭐️ Тарифы|📋 Мои данные|👤 Мои профили|👤 Профили)$"
     app.add_handler(MessageHandler(filters.Regex(MENU_BUTTON_REGEX), handle_menu_text_button))
 
     # Регистрация платёжных хэндлеров (Telegram Stars)
@@ -1420,3 +1806,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
