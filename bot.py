@@ -54,6 +54,13 @@ from jyotish_engine import (
     get_current_dasha,
     check_sade_sati,
     detect_yogas,
+    calculate_chara_karakas,
+    format_chara_karakas,
+    analyze_wealth_and_career,
+    format_wealth_analysis,
+    check_kuja_dosha,
+    get_upayas,
+    format_upayas,
 )
 from geo_helper import resolve_location
 from gemini_interpreter import GeminiInterpreter
@@ -63,6 +70,8 @@ from payment_helper import (
     send_compat_invoice,
     send_ask_invoice,
     send_yoga_invoice,
+    send_karma_invoice,
+    send_money_invoice,
     send_bundle_invoice,
     send_test_invoice,
     precheckout_callback,
@@ -72,6 +81,8 @@ from payment_helper import (
     PRICE_COMPAT_STARS,
     PRICE_ASK_STARS,
     PRICE_YOGA_STARS,
+    PRICE_KARMA_STARS,
+    PRICE_MONEY_STARS,
     PRICE_BUNDLE_STARS,
 )
 from db_manager import (
@@ -86,6 +97,8 @@ from db_manager import (
     clear_user_profiles,
     count_user_profiles,
     get_system_stats,
+    is_free_ask_available,
+    mark_free_ask_used,
 )
 
 # Telegram ID администратора (Александр)
@@ -211,9 +224,10 @@ def get_main_reply_keyboard():
     """Постоянная нижняя клавиатура быстрого доступа (ReplyKeyboardMarkup)."""
     keyboard = [
         ["🔮 Натальная карта", "⏳ Периоды Даша"],
+        ["💰 Деньги и карьера", "🔮 Кармическая задача"],
         ["🪐 Саде-Сати", "🧘 Детектор йог"],
-        ["❓ Задать вопрос", "💞 Совместимость"],
-        ["👤 Мои профили", "➕ Новый профиль"],
+        ["🛡 Упайи (Гармонизация)", "💞 Совместимость"],
+        ["❓ Задать вопрос", "👤 Мои профили"],
         ["⭐️ Тарифы", "📖 Справка"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
@@ -225,6 +239,10 @@ def get_start_inline_keyboard():
         [
             InlineKeyboardButton("🔮 Натальная карта", callback_data="nav_chart"),
             InlineKeyboardButton("👤 Мои профили", callback_data="prof_menu"),
+        ],
+        [
+            InlineKeyboardButton("💰 Деньги и карьера", callback_data="nav_money"),
+            InlineKeyboardButton("🔮 Кармическая задача", callback_data="nav_karma"),
         ],
         [
             InlineKeyboardButton("⭐️ Тарифы", callback_data="nav_prices"),
@@ -240,19 +258,78 @@ def get_chart_inline_keyboard():
             InlineKeyboardButton("🖼 Изображение карты (D1)", callback_data="nav_chart_img"),
         ],
         [
+            InlineKeyboardButton("💰 Деньги и карьера", callback_data="nav_money"),
+            InlineKeyboardButton("🔮 Кармическая задача", callback_data="nav_karma"),
+        ],
+        [
             InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
             InlineKeyboardButton("🪐 Саде-Сати", callback_data="nav_sadesati"),
         ],
         [
             InlineKeyboardButton("🧘 Детектор йог", callback_data="nav_yoga"),
+            InlineKeyboardButton("🛡 Упайи (Гармонизация)", callback_data="nav_upaya"),
+        ],
+        [
             InlineKeyboardButton("❓ Задать вопрос", callback_data="nav_ask"),
-        ],
-        [
             InlineKeyboardButton("💞 Совместимость", callback_data="nav_compat"),
-            InlineKeyboardButton("👤 Профили", callback_data="prof_menu"),
         ],
         [
+            InlineKeyboardButton("👤 Профили", callback_data="prof_menu"),
             InlineKeyboardButton("⭐️ Тарифы", callback_data="nav_prices"),
+        ],
+    ])
+
+
+def get_karma_inline_keyboard():
+    """Инлайн-кнопки после разбора кармической задачи души."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❓ Задать вопрос по карме", callback_data="nav_ask"),
+            InlineKeyboardButton("💰 Финансы и карьера", callback_data="nav_money"),
+        ],
+        [
+            InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+            InlineKeyboardButton("🛡 Упайи (Гармонизация)", callback_data="nav_upaya"),
+        ],
+        [
+            InlineKeyboardButton("🔮 Моя карта", callback_data="nav_mydata"),
+            InlineKeyboardButton("⭐️ Все тарифы", callback_data="nav_prices"),
+        ],
+    ])
+
+
+def get_money_inline_keyboard():
+    """Инлайн-кнопки после финансового анализа карты."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❓ Вопрос по финансам", callback_data="nav_ask"),
+            InlineKeyboardButton("🔮 Кармическая задача", callback_data="nav_karma"),
+        ],
+        [
+            InlineKeyboardButton("🧘 Детектор йог", callback_data="nav_yoga"),
+            InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+        ],
+        [
+            InlineKeyboardButton("🔮 Моя карта", callback_data="nav_mydata"),
+            InlineKeyboardButton("⭐️ Все тарифы", callback_data="nav_prices"),
+        ],
+    ])
+
+
+def get_upaya_inline_keyboard():
+    """Инлайн-кнопки после отображения ведических Упай."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❓ Задать вопрос по упайям", callback_data="nav_ask"),
+            InlineKeyboardButton("🪐 Проверить Саде-Сати", callback_data="nav_sadesati"),
+        ],
+        [
+            InlineKeyboardButton("💰 Деньги и карьера", callback_data="nav_money"),
+            InlineKeyboardButton("🔮 Кармическая задача", callback_data="nav_karma"),
+        ],
+        [
+            InlineKeyboardButton("🔮 Моя карта", callback_data="nav_mydata"),
+            InlineKeyboardButton("⭐️ Все тарифы", callback_data="nav_prices"),
         ],
     ])
 
@@ -388,6 +465,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 /chart — Составление натальной карты (дата, время, город рождения).\n"
         "🔹 /profile — Управление профилями (выбор активного, просмотр, удаление).\n"
         "🔹 /newprofile — Создание дополнительного профиля (партнёр, родственники).\n"
+        "🔹 /karma — Кармическая задача души и Чара-Караки (Атмакарака).\n"
+        "🔹 /money — Финансовый код, дома богатства и стратегия карьеры.\n"
+        "🔹 /upaya — Персональные Ведические Упайи (методы гармонизации).\n"
         "🔹 /dasha — Разбор планетных периодов Вимшоттари Даша.\n"
         "🔹 /compat — Синастрия и совместимость по 8 ведическим показателям.\n"
         "🔹 /ask — Задать любой вопрос ИИ-астрологу по своей карте.\n"
@@ -412,6 +492,10 @@ async def prices_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⭐️ *Прайс-лист на ИИ-разборы (Telegram Stars):*\n\n"
         f"🔮 **Полный разбор натальной карты:** `{PRICE_CHART_STARS} ⭐️`\n"
         "  • Характер, Лагна, миссия души, карьера, финансы, отношения, персональные упайи.\n\n"
+        f"🔮 **Кармическая задача души (Атмакарака):** `{PRICE_KARMA_STARS} ⭐️`\n"
+        "  • Расчёт 7 карак Джаймини, главные кармические уроки души и вектор предназначения.\n\n"
+        f"💰 **Финансовый код и карьера:** `{PRICE_MONEY_STARS} ⭐️`\n"
+        "  • Анализ 2-го и 11-го домов богатства, Дхана-йоги и стратегия заработка от ИИ.\n\n"
         f"⏳ **Разбор периодов Вимшоттари Даша:** `{PRICE_DASHA_STARS} ⭐️`\n"
         "  • Текущая Маха-Даша и Антар-Даша, уроки периода, точки роста, предостережения.\n\n"
         f"💞 **Анализ совместимости (Аштакута):** `{PRICE_COMPAT_STARS} ⭐️`\n"
@@ -422,13 +506,17 @@ async def prices_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • Раджа-йога, Гаджакешари, Будхадитья, Дхана, Панча Махапуруша + разбор от ИИ.\n\n"
         f"🌟 **Бандл «Вся судьба 360°»:** `{PRICE_BUNDLE_STARS} ⭐️`\n"
         "  • Натальная карта + Даша + Йоги + 1 вопрос — всё в одном со скидкой!\n\n"
-        "🆓 *Бесплатно:* базовые расчёты, /sadesati (Саде-Сати).\n\n"
+        "🆓 *Бесплатно:* базовые расчёты, /sadesati (Саде-Сати), /upaya (Ведические Упайи), 1-й вопрос к ИИ.\n\n"
         "✨ Оплата производится в 1 клик через официальные звёзды Telegram (Apple Pay / Google Pay / карты)."
     )
     prices_keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(f"🔮 Карта ({PRICE_CHART_STARS} ⭐️)", callback_data="buy_chart"),
             InlineKeyboardButton(f"⏳ Даша ({PRICE_DASHA_STARS} ⭐️)", callback_data="buy_dasha"),
+        ],
+        [
+            InlineKeyboardButton(f"🔮 Карма ({PRICE_KARMA_STARS} ⭐️)", callback_data="buy_karma"),
+            InlineKeyboardButton(f"💰 Деньги ({PRICE_MONEY_STARS} ⭐️)", callback_data="buy_money"),
         ],
         [
             InlineKeyboardButton(f"💞 Совместимость ({PRICE_COMPAT_STARS} ⭐️)", callback_data="buy_compat"),
@@ -464,8 +552,16 @@ async def show_active_profile_card(update: Update, context: ContextTypes.DEFAULT
             InlineKeyboardButton("📜 Полный разбор", callback_data="prof_view_active"),
         ],
         [
+            InlineKeyboardButton("💰 Деньги и карьера", callback_data="nav_money"),
+            InlineKeyboardButton("🔮 Кармическая задача", callback_data="nav_karma"),
+        ],
+        [
             InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
             InlineKeyboardButton("🪐 Саде-Сати", callback_data="nav_sadesati"),
+        ],
+        [
+            InlineKeyboardButton("🧘 Детектор йог", callback_data="nav_yoga"),
+            InlineKeyboardButton("🛡 Упайи (Гармонизация)", callback_data="nav_upaya"),
         ],
         [
             InlineKeyboardButton("👤 Мои профили", callback_data="prof_menu"),
@@ -1299,6 +1395,40 @@ async def dasha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===================== ДИАЛОГ СОВМЕСТИМОСТИ =====================
 
+def format_kuja_compatibility(chart1: dict, chart2: dict, name1: str = "Партнёр 1", name2: str = "Партнёр 2") -> str:
+    """Сравнительный анализ поражения Марсом (Куджа-Доша / Манглика) для обоих партнёров."""
+    k1 = check_kuja_dosha(chart1)
+    k2 = check_kuja_dosha(chart2)
+    has1 = k1.get("has_dosha", False)
+    has2 = k2.get("has_dosha", False)
+    lines = ["🔥 *Анализ Куджа-Доши (Манглика в отношениях):*"]
+    desc1 = f"• *{name1}*: Марс в доме {k1.get('mars_house')} ({k1.get('mars_sign_ru')}). "
+    if has1:
+        desc1 += "⚠️ Присутствует Куджа-Доша (повышенная страстность и требовательность)."
+    elif k1.get("is_cancelled"):
+        desc1 += f"✅ Манглика нейтрализована ({k1.get('cancel_reason')})."
+    else:
+        desc1 += "✅ Куджа-Доша отсутствует."
+    lines.append(desc1)
+
+    desc2 = f"• *{name2}*: Марс в доме {k2.get('mars_house')} ({k2.get('mars_sign_ru')}). "
+    if has2:
+        desc2 += "⚠️ Присутствует Куджа-Доша."
+    elif k2.get("is_cancelled"):
+        desc2 += f"✅ Манглика нейтрализована ({k2.get('cancel_reason')})."
+    else:
+        desc2 += "✅ Куджа-Доша отсутствует."
+    lines.append(desc2)
+
+    if has1 and has2:
+        lines.append("✨ *Итог:* Оба партнёра обладают энергией Манглика — энергии уравновешивают друг друга (взаимная нейтрализация)!")
+    elif not has1 and not has2:
+        lines.append("✨ *Итог:* Поражения Марсом нет ни у кого — гармоничный и спокойный астрологический фон.")
+    else:
+        lines.append("⚠️ *Итог:* Односторонняя Куджа-Доша. Требуется бережность к эмоциям партнёра, совместный спорт и терпение в первый год совместной жизни.")
+    return "\n".join(lines)
+
+
 async def compat_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало проверки совместимости."""
     user_id = (
@@ -1375,19 +1505,29 @@ async def compat_partner_selected(update: Update, context: ContextTypes.DEFAULT_
             f"💞 Сопоставляю карты *{my_profile['profile_name']}* и *{partner_profile['profile_name']}*..."
         )
 
+        kuja_text = format_kuja_compatibility(
+            my_profile["chart_data"],
+            partner_chart,
+            my_profile.get("profile_name", "Партнёр 1"),
+            partner_profile.get("profile_name", "Партнёр 2")
+        )
+
         gemini = get_gemini_client()
         if not gemini:
             await status_msg.edit_text(
-                "ℹ️ Карты обоих партнёров загружены!\n"
-                "Для анализа совместимости от ИИ добавь `GEMINI_API_KEY` в `.env`."
+                f"ℹ️ *Карты обоих партнёров загружены!*\n\n{kuja_text}\n\n"
+                "Для детального анализа совместимости от ИИ добавь `GEMINI_API_KEY` в `.env`.",
+                parse_mode="Markdown",
+                reply_markup=get_compat_inline_keyboard()
             )
             return ConversationHandler.END
 
         has_paid = context.user_data.get("paid_compat", False)
         if PAYMENT_REQUIRED and not has_paid:
             await status_msg.edit_text(
-                f"💞 *Карты обоих партнёров сопоставлены ({my_profile['profile_name']} + {partner_profile['profile_name']})!*\n\n"
-                "Чтобы запустить детальный анализ синастрии по 8 факторам ведической гармонии (Аштакута) от ИИ:\n"
+                f"💞 *Карты сопоставлены ({my_profile['profile_name']} + {partner_profile['profile_name']})!*\n\n"
+                f"{kuja_text}\n\n"
+                "Чтобы получить полный психологический и кармический анализ синастрии по 8 факторам (Аштакута) от ИИ-астролога:\n"
                 f"Стоимость разбора: **{PRICE_COMPAT_STARS} ⭐️**",
                 parse_mode="Markdown"
             )
@@ -1402,7 +1542,7 @@ async def compat_partner_selected(update: Update, context: ContextTypes.DEFAULT_
                 chart2_summary=partner_summary,
             )
             await status_msg.delete()
-            header = f"💘 *Совместимость: {my_profile['profile_name']} ❤️ {partner_profile['profile_name']}*\n\n"
+            header = f"💘 *Совместимость: {my_profile['profile_name']} ❤️ {partner_profile['profile_name']}*\n\n{kuja_text}\n\n"
             await send_split_message(
                 update,
                 header + result,
@@ -1525,18 +1665,28 @@ async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TY
         await status_msg.edit_text(f"❌ Не удалось рассчитать карту партнёра: {e}")
         return ConversationHandler.END
 
+    kuja_text = format_kuja_compatibility(
+        my_profile["chart_data"],
+        partner_chart,
+        my_profile.get("profile_name", "Партнёр 1"),
+        "Партнёр 2"
+    )
+
     gemini = get_gemini_client()
     if not gemini:
         await status_msg.edit_text(
-            "ℹ️ Карта партнёра построена!\n"
-            "Для анализа совместимости от ИИ добавь `GEMINI_API_KEY` в `.env`."
+            f"ℹ️ *Карта партнёра построена!*\n\n{kuja_text}\n\n"
+            "Для анализа совместимости от ИИ добавь `GEMINI_API_KEY` в `.env`.",
+            parse_mode="Markdown",
+            reply_markup=get_compat_inline_keyboard()
         )
         return ConversationHandler.END
 
     has_paid = context.user_data.get("paid_compat", False)
     if PAYMENT_REQUIRED and not has_paid:
         await status_msg.edit_text(
-            "💞 *Карты обоих партнёров построены!*\n\n"
+            f"💞 *Карты обоих партнёров построены!*\n\n"
+            f"{kuja_text}\n\n"
             "Чтобы запустить детальный анализ синастрии по 8 факторам ведической гармонии (Аштакута) от ИИ:\n"
             f"Стоимость разбора: **{PRICE_COMPAT_STARS} ⭐️**",
             parse_mode="Markdown"
@@ -1555,7 +1705,7 @@ async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TY
         await status_msg.delete()
         await send_split_message(
             update,
-            f"💘 *Анализ совместимости парных карт:*\n\n{result}",
+            f"💘 *Анализ совместимости парных карт:*\n\n{kuja_text}\n\n{result}",
             reply_markup=get_compat_inline_keyboard()
         )
 
@@ -1797,6 +1947,146 @@ async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ===================== КАРМИЧЕСКАЯ ЗАДАЧА ДУШИ (/karma) =====================
+
+async def karma_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Кармическая задача души и Чара-Караки Джаймини (Атмакарака и др.)."""
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
+    profile = get_user_natal_profile(user_id, context)
+    if not profile:
+        await update.effective_message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
+            reply_markup=get_main_reply_keyboard()
+        )
+        return
+
+    chart_data = profile["chart_data"]
+    karakas = calculate_chara_karakas(chart_data)
+    karaka_text = format_chara_karakas(karakas)
+    header = f"🌟 *Кармическая задача души (Профиль: «{profile.get('profile_name', 'Мой гороскоп')}»)*\n\n"
+    full_text = header + karaka_text
+
+    gemini = get_gemini_client()
+    if not gemini:
+        await send_split_message(update, full_text, reply_markup=get_karma_inline_keyboard())
+        return
+
+    has_paid = context.user_data.get("paid_karma", False) if context and context.user_data else False
+    if PAYMENT_REQUIRED and not has_paid:
+        await send_split_message(update, full_text)
+        await update.effective_message.reply_text(
+            "🌟 *Караки души рассчитаны!*\n\n"
+            "Хочешь получить глубокий разбор кармической задачи души от ИИ-астролога? "
+            "В чём твой главный жизненный урок и через что раскрывается истинный путь души?\n"
+            f"Стоимость разбора: **{PRICE_KARMA_STARS} ⭐️**",
+            parse_mode="Markdown",
+            reply_markup=get_karma_inline_keyboard()
+        )
+        await send_karma_invoice(update, context)
+        return
+
+    await send_split_message(update, full_text)
+    status_msg = await update.effective_message.reply_text("🔮 ИИ-астролог анализирует кармическую задачу души...")
+    try:
+        interpretation = await gemini.interpret_karma(chart_data, profile.get("summary", ""), karakas)
+        await status_msg.delete()
+        await send_split_message(
+            update,
+            f"🔮 *Глубокий кармический разбор (ИИ-Астролог):*\n\n{interpretation}",
+            reply_markup=get_karma_inline_keyboard()
+        )
+    except Exception as e:
+        logger.exception("Ошибка ИИ-разбора кармы")
+        await status_msg.edit_text(f"⚠️ Ошибка при генерации кармического разбора: {e}")
+        await update.effective_message.reply_text("Выбери следующее действие:", reply_markup=get_karma_inline_keyboard())
+
+
+# ===================== ФИНАНСОВЫЙ КОД И КАРЬЕРА (/money) =====================
+
+async def money_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Финансовый потенциал, дома богатства и стратегия карьеры."""
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
+    profile = get_user_natal_profile(user_id, context)
+    if not profile:
+        await update.effective_message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
+            reply_markup=get_main_reply_keyboard()
+        )
+        return
+
+    chart_data = profile["chart_data"]
+    wealth_data = analyze_wealth_and_career(chart_data)
+    wealth_text = format_wealth_analysis(wealth_data)
+    header = f"💰 *Финансовый код и карьера (Профиль: «{profile.get('profile_name', 'Мой гороскоп')}»)*\n\n"
+    full_text = header + wealth_text
+
+    gemini = get_gemini_client()
+    if not gemini:
+        await send_split_message(update, full_text, reply_markup=get_money_inline_keyboard())
+        return
+
+    has_paid = context.user_data.get("paid_money", False) if context and context.user_data else False
+    if PAYMENT_REQUIRED and not has_paid:
+        await send_split_message(update, full_text)
+        await update.effective_message.reply_text(
+            "💰 *Финансовый анализ составлен!*\n\n"
+            "Хочешь получить персональную стратегию заработка и масштабирования от ИИ-астролога? "
+            "Какие ниши принесут максимум дохода и как гармонизировать денежный поток?\n"
+            f"Стоимость стратегии: **{PRICE_MONEY_STARS} ⭐️**",
+            parse_mode="Markdown",
+            reply_markup=get_money_inline_keyboard()
+        )
+        await send_money_invoice(update, context)
+        return
+
+    await send_split_message(update, full_text)
+    status_msg = await update.effective_message.reply_text("💼 ИИ-астролог формирует финансовую стратегию...")
+    try:
+        interpretation = await gemini.interpret_wealth(chart_data, profile.get("summary", ""), wealth_data)
+        await status_msg.delete()
+        await send_split_message(
+            update,
+            f"💼 *Персональная финансовая стратегия (ИИ-Астролог):*\n\n{interpretation}",
+            reply_markup=get_money_inline_keyboard()
+        )
+    except Exception as e:
+        logger.exception("Ошибка ИИ-разбора финансов")
+        await status_msg.edit_text(f"⚠️ Ошибка при анализе финансов: {e}")
+        await update.effective_message.reply_text("Выбери следующее действие:", reply_markup=get_money_inline_keyboard())
+
+
+# ===================== ВЕДИЧЕСКИЕ УПАЙИ (/upaya) =====================
+
+async def upaya_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ведические Упайи (методы гармонизации планетных влияний) — 100% бесплатно."""
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
+    profile = get_user_natal_profile(user_id, context)
+    if not profile:
+        await update.effective_message.reply_text(
+            "Сначала необходимо составить натальную карту!\nНажми /chart или кнопку ниже:",
+            reply_markup=get_main_reply_keyboard()
+        )
+        return
+
+    chart_data = profile["chart_data"]
+    upaya_data = get_upayas(chart_data)
+    upaya_text = format_upayas(upaya_data)
+    header = f"🛡 *Персональные Ведические Упайи (Профиль: «{profile.get('profile_name', 'Мой гороскоп')}»)*\n\n"
+    await send_split_message(update, header + upaya_text, reply_markup=get_upaya_inline_keyboard())
+
+
 # ===================== ЭКСПРЕСС-ВОПРОС (/ask) =====================
 
 async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1823,8 +2113,10 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    has_paid = context.user_data.get("paid_ask", False)
-    if PAYMENT_REQUIRED and not has_paid:
+    free_available = is_free_ask_available(user_id)
+    has_paid = context.user_data.get("paid_ask", False) if context and context.user_data else False
+
+    if PAYMENT_REQUIRED and not has_paid and not free_available:
         await update.effective_message.reply_text(
             "❓ *Экспресс-вопрос ИИ-астрологу*\n\n"
             "Задай любой вопрос по своей натальной карте — карьера, отношения, здоровье, переезд, финансы.\n\n"
@@ -1835,8 +2127,9 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     prof_name = profile.get("profile_name", "Мой гороскоп")
+    free_notice = "🎁 *Твой 1-й вопрос к ИИ-астрологу — БЕСПЛАТНО!*\n\n" if (free_available and not has_paid) else ""
     await update.effective_message.reply_text(
-        f"❓ *Задай вопрос ИИ-астрологу (Профиль: «{prof_name}»)*\n\n"
+        f"{free_notice}❓ *Задай вопрос ИИ-астрологу (Профиль: «{prof_name}»)*\n\n"
         "Напиши свой вопрос свободным текстом. Бот сопоставит натальную карту с твоим текущим периодом (Даша) и транзитами!\n\n"
         "Примеры вопросов:\n"
         "• 💼 _«Стоит ли менять работу в 2026–2027 годах?»_\n"
@@ -1917,6 +2210,9 @@ async def ask_question_received(update: Update, context: ContextTypes.DEFAULT_TY
             f"📜 *Ответ ИИ-астролога:*\n\n{answer}",
             reply_markup=get_ask_inline_keyboard()
         )
+        # Если это был первый бесплатный вопрос, помечаем его использованным
+        if is_free_ask_available(user_id) and not (context.user_data and context.user_data.get("paid_ask", False)):
+            mark_free_ask_used(user_id)
     except Exception as e:
         logger.exception("Ошибка ответа на вопрос")
         await status_msg.edit_text(f"⚠️ Ошибка при генерации ответа: {e}")
@@ -2038,16 +2334,48 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
                 reply_markup=get_yoga_inline_keyboard()
             )
 
+    elif payload == "payload_karma_interpretation":
+        context.user_data["paid_karma"] = True
+        karakas = calculate_chara_karakas(chart_data)
+        status_msg = await update.effective_message.reply_text("🔮 Составляю глубокий кармический разбор души...")
+        try:
+            interpretation = await gemini.interpret_karma(chart_data, summary, karakas)
+            await status_msg.delete()
+            await send_split_message(
+                update,
+                f"🔮 *Глубокий кармический разбор (ИИ-Астролог):*\n\n{interpretation}",
+                reply_markup=get_karma_inline_keyboard()
+            )
+        except Exception as e:
+            await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
+
+    elif payload == "payload_money_interpretation":
+        context.user_data["paid_money"] = True
+        wealth_data = analyze_wealth_and_career(chart_data)
+        status_msg = await update.effective_message.reply_text("💼 Составляю финансовую стратегию...")
+        try:
+            interpretation = await gemini.interpret_wealth(chart_data, summary, wealth_data)
+            await status_msg.delete()
+            await send_split_message(
+                update,
+                f"💼 *Персональная финансовая стратегия (ИИ-Астролог):*\n\n{interpretation}",
+                reply_markup=get_money_inline_keyboard()
+            )
+        except Exception as e:
+            await status_msg.edit_text(f"⚠️ Ошибка генерации: {e}")
+
     elif payload == "payload_bundle_360":
         # Бандл активирует все платные функции
         context.user_data["paid_chart"] = True
         context.user_data["paid_dasha"] = True
         context.user_data["paid_yoga"] = True
+        context.user_data["paid_karma"] = True
+        context.user_data["paid_money"] = True
         context.user_data["paid_ask"] = True
         # Генерируем полный разбор карты как основной продукт бандла
         status_msg = await update.effective_message.reply_text(
             "🌟 *Бандл «Вся судьба 360°» активирован!*\n\n"
-            "Тебе доступны: разбор карты, Даша, йоги и 1 вопрос.\n"
+            "Тебе доступны: разбор карты, Даша, йоги, карма, деньги и 1 вопрос.\n"
             "Начинаю полный разбор натальной карты...",
             parse_mode="Markdown"
         )
@@ -2060,7 +2388,7 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
                 reply_markup=get_chart_inline_keyboard()
             )
             await update.effective_message.reply_text(
-                "✅ Теперь используй /dasha, /yoga и /ask — все они разблокированы!",
+                "✅ Теперь используй /dasha, /karma, /money, /yoga и /ask — все они разблокированы!",
                 reply_markup=get_main_reply_keyboard()
             )
         except Exception as e:
@@ -2249,6 +2577,15 @@ async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif data == "nav_yoga":
         await yoga_command(update, context)
 
+    elif data == "nav_karma":
+        await karma_command(update, context)
+
+    elif data == "nav_money":
+        await money_command(update, context)
+
+    elif data == "nav_upaya":
+        await upaya_command(update, context)
+
     elif data == "nav_ask":
         await ask_start(update, context)
 
@@ -2270,6 +2607,12 @@ async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     elif data == "buy_dasha":
         await send_dasha_invoice(update, context)
+
+    elif data == "buy_karma":
+        await send_karma_invoice(update, context)
+
+    elif data == "buy_money":
+        await send_money_invoice(update, context)
 
     elif data == "buy_compat":
         await send_compat_invoice(update, context)
@@ -2342,6 +2685,12 @@ async def handle_menu_text_button(update: Update, context: ContextTypes.DEFAULT_
         return await sadesati_command(update, context)
     elif text == "🧘 Детектор йог":
         return await yoga_command(update, context)
+    elif text == "💰 Деньги и карьера":
+        return await money_command(update, context)
+    elif text == "🔮 Кармическая задача":
+        return await karma_command(update, context)
+    elif text in ("🛡 Упайи (Гармонизация)", "🛡 Упайи (Коррекция)", "🛡 Упайи"):
+        return await upaya_command(update, context)
     elif text == "❓ Задать вопрос":
         return await ask_start(update, context)
     elif text == "💞 Совместимость":
@@ -2362,6 +2711,9 @@ async def post_init(application: Application) -> None:
         BotCommand("dasha", "⏳ Периоды жизни (Даша)"),
         BotCommand("sadesati", "🪐 Калькулятор Саде-Сати"),
         BotCommand("yoga", "🧘 Детектор йог"),
+        BotCommand("karma", "🔮 Кармическая задача (Атмакарака)"),
+        BotCommand("money", "💰 Финансы и карьера"),
+        BotCommand("upaya", "🛡 Ведические Упайи"),
         BotCommand("ask", "❓ Экспресс-вопрос ИИ"),
         BotCommand("compat", "💞 Совместимость с партнёром"),
         BotCommand("prices", "⭐️ Тарифы и Звёзды"),
@@ -2568,6 +2920,9 @@ def main():
     app.add_handler(CommandHandler("dasha", dasha_command))
     app.add_handler(CommandHandler("sadesati", sadesati_command))
     app.add_handler(CommandHandler("yoga", yoga_command))
+    app.add_handler(CommandHandler("karma", karma_command))
+    app.add_handler(CommandHandler("money", money_command))
+    app.add_handler(CommandHandler("upaya", upaya_command))
     app.add_handler(CommandHandler("admin", admin_command))
 
     # Регистрация диалогов
@@ -2579,7 +2934,7 @@ def main():
     app.add_handler(CallbackQueryHandler(inline_nav_callback))
 
     # Регистрация нажатий на постоянную нижнюю клавиатуру
-    MENU_BUTTON_REGEX = r"^(⏳ Периоды Даша|🪐 Саде-Сати|🧘 Детектор йог|⭐️ Тарифы|📋 Мои данные|👤 Мои профили|👤 Профили|🔄 Сменить профиль|📖 Справка)$"
+    MENU_BUTTON_REGEX = r"^(⏳ Периоды Даша|🪐 Саде-Сати|🧘 Детектор йог|💰 Деньги и карьера|🔮 Кармическая задача|🛡 Упайи.*|⭐️ Тарифы|📋 Мои данные|👤 Мои профили|👤 Профили|🔄 Сменить профиль|📖 Справка)$"
     app.add_handler(MessageHandler(filters.Regex(MENU_BUTTON_REGEX), handle_menu_text_button))
 
     # Регистрация платёжных хэндлеров (Telegram Stars)

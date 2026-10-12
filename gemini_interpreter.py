@@ -116,6 +116,46 @@ YOGA_INTERPRETATION_PROMPT = """Проанализируй ведические 
 Если активных йог нет — объясни ближайшие потенциальные йоги.
 """
 
+KARMA_INTERPRETATION_PROMPT = """Ты — ведический астролог (Джьотиш). Проанализируй кармическую задачу души по системе Чара-Карак Джаймини (Атмакарака, Аматьякарака, Даракарака).
+
+{chart_summary}
+
+```json
+{chart_json}
+```
+
+Данные карак:
+```json
+{karakas_json}
+```
+
+Структура разбора:
+1. 🌟 **Атмакарака (Планета Души):** Главная кармическая задача воплощения, внутренний конфликт и урок, который душа пришла пройти.
+2. 💼 **Аматьякарака (Вектор карьеры):** Профессия, социальная реализация, как зарабатывать деньги в согласии со своей природой.
+3. 💍 **Даракарака (Партнёрство и любовь):** Какой партнёр предназначен по судьбе, какие кармические уроки в браке.
+4. 🪔 **Практические упайи:** Рекомендации по гармонизации Атмакараки на каждый день.
+"""
+
+WEALTH_INTERPRETATION_PROMPT = """Ты — ведический астролог (Джьотиш). Проанализируй финансовый потенциал и карьерный код натальной карты (2, 10, 11 дома, Дхана-йоги).
+
+{chart_summary}
+
+```json
+{chart_json}
+```
+
+Финансовые показатели:
+```json
+{wealth_json}
+```
+
+Структура разбора:
+1. 🏦 **Источники богатства:** 2-й и 11-й дома — откуда приходят деньги (найм, бизнес, инвестиции, творчество).
+2. 📈 **Карьерная стратегия:** 10-й дом и Аматьякарака — где ждёт признание, статус и масштабирование.
+3. ⚠️ **Финансовые риски и блоки:** На что обращать внимание, где возможны утечки ресурсов.
+4. 🪔 **Денежные Упайи:** Практические ведические методы привлечения финансового изобилия (дни, цвета, благотворительность).
+"""
+
 # Актуальные модели (октябрь 2026): gemini-3.8-flash — флагман, gemini-2.5-flash — стабильный legacy
 CANDIDATE_MODELS = [
     "gemini-3.8-flash",
@@ -198,6 +238,28 @@ class GeminiInterpreter:
             chart_summary=chart_summary,
             chart_json=compact,
             yogas_json=json.dumps(yogas, ensure_ascii=False, indent=2),
+        )
+        return await self._generate(prompt)
+
+    async def interpret_karma(self, chart_data: dict, chart_summary: str,
+                              karakas: dict) -> str:
+        """Интерпретировать кармическую задачу души и Чара-караки через ИИ."""
+        compact = _compact_chart_json(chart_data)
+        prompt = KARMA_INTERPRETATION_PROMPT.format(
+            chart_summary=chart_summary,
+            chart_json=compact,
+            karakas_json=json.dumps(karakas, ensure_ascii=False, indent=2),
+        )
+        return await self._generate(prompt)
+
+    async def interpret_wealth(self, chart_data: dict, chart_summary: str,
+                               wealth_data: dict) -> str:
+        """Интерпретировать финансовый потенциал и карьерный код через ИИ."""
+        compact = _compact_chart_json(chart_data)
+        prompt = WEALTH_INTERPRETATION_PROMPT.format(
+            chart_summary=chart_summary,
+            chart_json=compact,
+            wealth_json=json.dumps(wealth_data, ensure_ascii=False, indent=2),
         )
         return await self._generate(prompt)
 

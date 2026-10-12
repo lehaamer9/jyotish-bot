@@ -16,6 +16,8 @@ PRICE_DASHA_STARS = int(os.getenv("PRICE_DASHA_STARS", "100"))
 PRICE_COMPAT_STARS = int(os.getenv("PRICE_COMPAT_STARS", "150"))  # Снижено с 200 до 150
 PRICE_ASK_STARS = int(os.getenv("PRICE_ASK_STARS", "50"))         # Tripwire — экспресс-вопрос
 PRICE_YOGA_STARS = int(os.getenv("PRICE_YOGA_STARS", "100"))      # Детектор йог + ИИ-разбор
+PRICE_KARMA_STARS = int(os.getenv("PRICE_KARMA_STARS", "100"))    # Атмакарака и карма души
+PRICE_MONEY_STARS = int(os.getenv("PRICE_MONEY_STARS", "100"))    # Финансовый код и карьера
 PRICE_BUNDLE_STARS = int(os.getenv("PRICE_BUNDLE_STARS", "300"))  # Bundle «Вся судьба 360°»
 
 # Флаг: обязательна ли оплата для получения ИИ-трактовки (True = только после оплаты, False = демо-режим)
@@ -125,6 +127,38 @@ async def send_bundle_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+async def send_karma_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправить инвойс на оплату ИИ-разбора кармической задачи души (Атмакарака)."""
+    chat_id = update.effective_chat.id
+    prices = [LabeledPrice(label="🔮 Кармическая задача души (Атмакарака)", amount=PRICE_KARMA_STARS)]
+
+    await context.bot.send_invoice(
+        chat_id=chat_id,
+        title="🔮 Разбор кармической задачи души (Атмакарака)",
+        description="Глубокий анализ высшей цели воплощения, кармических уроков и вектора карьеры по Джаймини.",
+        payload="payload_karma_interpretation",
+        provider_token="",
+        currency="XTR",
+        prices=prices,
+    )
+
+
+async def send_money_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправить инвойс на оплату ИИ-разбора финансового кода и карьеры."""
+    chat_id = update.effective_chat.id
+    prices = [LabeledPrice(label="💰 Финансовый код и Карьера", amount=PRICE_MONEY_STARS)]
+
+    await context.bot.send_invoice(
+        chat_id=chat_id,
+        title="💰 Финансовый код и Карьера (Дхана & Карма)",
+        description="Анализ источников богатства (2 и 11 дома), карьерного призвания (10 дом), Дхана-йог и денежных упай.",
+        payload="payload_money_interpretation",
+        provider_token="",
+        currency="XTR",
+        prices=prices,
+    )
+
+
 async def send_test_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отправить тестовый инвойс на 1 Звезду (для проверки работы платежей админом)."""
     chat_id = update.effective_chat.id
@@ -155,6 +189,8 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "payload_compat_interpretation",
         "payload_ask_question",
         "payload_yoga_interpretation",
+        "payload_karma_interpretation",
+        "payload_money_interpretation",
         "payload_bundle_360",
         "payload_test_payment",
     )

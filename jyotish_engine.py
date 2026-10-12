@@ -478,150 +478,431 @@ def _get_transit_saturn_sign() -> Optional[str]:
         return None
 
 
-def detect_yogas(chart_data: dict) -> list:
-    """Обнаружить ведические йоги в натальной карте.
+# =========================================================================
+# ЧАРА-КАРАКИ ДЖАЙМИНИ (АТМАКАРАКА, АМАТЬЯКАРАКА, ДАРАКАРАКА И ДР.)
+# =========================================================================
 
-    Проверяет: Гаджакешари, Будхадитья, Панча Махапуруша, Раджа-йоги, Дхана-йоги.
+CHARA_KARAKA_ROLES = [
+    {
+        "code": "AK",
+        "name": "Atmakaraka",
+        "name_ru": "🌟 Атмакарака (Планета Души)",
+        "meaning": "Царь карты. Олицетворяет истинную сущность души, высшую кармическую цель и главный жизненный урок.",
+    },
+    {
+        "code": "AmK",
+        "name": "Amatyakaraka",
+        "name_ru": "💼 Аматьякарака (Советник / Карьера)",
+        "meaning": "Первый министр. Указывает на карьерное призвание, социальный статус, профессию и материальное развитие.",
+    },
+    {
+        "code": "BK",
+        "name": "Bhratrikaraka",
+        "name_ru": "🤝 Бхратрикарака (Гуру и Наставники)",
+        "meaning": "Олицетворяет учителей, духовных наставников, братьев, сестёр и тех, кто ведёт вас по пути мудрости.",
+    },
+    {
+        "code": "MK",
+        "name": "Matrikaraka",
+        "name_ru": "🏡 Матрикарака (Мать и Счастье)",
+        "meaning": "Показатель матери, домашнего очага, эмоционального покоя, комфорта и недвижимости.",
+    },
+    {
+        "code": "PK",
+        "name": "Putrakaraka",
+        "name_ru": "👶 Путракарака (Дети и Творчество)",
+        "meaning": "Связан с детьми, учениками, интеллектом, творческим самовыражением и божественной милостью.",
+    },
+    {
+        "code": "GK",
+        "name": "Gnatikaraka",
+        "name_ru": "🛡️ Гнатикарака (Препятствия и Сила)",
+        "meaning": "Олицетворяет борьбу, конкурентов, испытания, преодоление болезней и способность побеждать в кризисах.",
+    },
+    {
+        "code": "DK",
+        "name": "Darakaraka",
+        "name_ru": "💍 Даракарака (Супруг / Партнёр)",
+        "meaning": "Показатель супруга, романтического союза, типажа партнёра и отношений в браке и бизнесе.",
+    },
+]
+
+PLANET_KARMA_LESSONS = {
+    "Sun": "Урок преодоления гордыни, развитие истинного благородства, лидерства и заботы о других.",
+    "Moon": "Урок безусловной любви, эмоционального спокойствия, заботы без привязанности и зависимостей.",
+    "Mars": "Урок контроля гнева, ненасилия (ахимсы), трансформации импульсивности в дисциплинированную защиту слабых.",
+    "Mercury": "Урок правдивости речи, чистоты помыслов, непричинения вреда словом и интеллектуальной искренности.",
+    "Jupiter": "Урок смирения в знаниях, уважения к учителям, духовной мудрости и наставничества без осуждения.",
+    "Venus": "Урок чистоты в отношениях, верности, контроля чувственных страстей и возвышенного искусства.",
+    "Saturn": "Урок смирения, терпения, сострадания к страждущим и преданного бескорыстного труда без ропота на судьбу.",
+}
+
+
+def calculate_chara_karakas(chart_data: dict) -> dict:
     """
-    yogas = []
-    planets = chart_data.get("planets", [])
+    Рассчитать 7 Чара-Карак (Jaimini Chara Karakas) по натальной карте.
+    Используется классическая 7-карака система: Sun, Moon, Mars, Mercury, Jupiter, Venus, Saturn.
+    Планеты сортируются по убыванию градуса в знаке (0°..30°).
+    """
+    eligible_planets = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"]
+    planets_data = []
+
+    for p in chart_data.get("planets", []):
+        pname = p.get("name")
+        if pname in eligible_planets:
+            deg = float(p.get("degrees", 0.0)) % 30.0
+            planets_data.append({
+                "name": pname,
+                "name_ru": p.get("name_ru", PLANET_NAMES_RU.get(pname, pname)),
+                "sign": p.get("sign"),
+                "sign_ru": p.get("sign_ru", p.get("sign")),
+                "house": p.get("house", 1),
+                "degrees": deg,
+                "motion": p.get("motion"),
+                "nakshatra": p.get("nakshatra", ""),
+            })
+
+    # Сортировка по убыванию градусов внутри знака
+    planets_data.sort(key=lambda x: x["degrees"], reverse=True)
+
+    karakas = []
+    for idx, p in enumerate(planets_data):
+        if idx < len(CHARA_KARAKA_ROLES):
+            role = CHARA_KARAKA_ROLES[idx]
+            lesson = PLANET_KARMA_LESSONS.get(p["name"], "")
+            karakas.append({
+                "code": role["code"],
+                "role_name": role["name"],
+                "role_name_ru": role["name_ru"],
+                "meaning": role["meaning"],
+                "planet": p["name"],
+                "planet_ru": p["name_ru"],
+                "sign_ru": p["sign_ru"],
+                "house": p["house"],
+                "degrees": round(p["degrees"], 2),
+                "nakshatra": p["nakshatra"],
+                "lesson": lesson,
+            })
+
+    return {
+        "karakas": karakas,
+        "atmakaraka": karakas[0] if karakas else None,
+        "amatyakaraka": karakas[1] if len(karakas) > 1 else None,
+        "darakaraka": karakas[-1] if karakas else None,
+    }
+
+
+def format_chara_karakas(karakas_dict: dict) -> str:
+    """Форматировать разбор Чара-Карак для Telegram."""
+    lines = ["🔮 *Кармическая задача души (Чара-Караки Джаймини)*\n"]
+    lines.append("В ведической астрологии градусы планет раскрывают ключевые роли вашей души в текущем воплощении:\n")
+
+    for k in karakas_dict.get("karakas", []):
+        code = k["code"]
+        name_ru = k["role_name_ru"]
+        p_ru = k["planet_ru"]
+        deg = k["degrees"]
+        sign = k["sign_ru"]
+        house = k["house"]
+        meaning = k["meaning"]
+
+        lines.append(f"*{name_ru}*: *{p_ru}* ({deg}°, {sign}, дом {house})")
+        lines.append(f"_{meaning}_")
+        if code == "AK":
+            lines.append(f"✨ *Главный кармический урок:* {k['lesson']}")
+        elif code == "AmK":
+            lines.append(f"💼 *Вектор карьеры:* успех через раскрытие качеств {p_ru} в сфере дома {house}.")
+        elif code == "DK":
+            lines.append(f"💍 *Характер партнёра:* черты супруга и тип союза связаны с качествами {p_ru}.")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+# =========================================================================
+# АНАЛИЗ БОГАТСТВА, ФИНАНСОВ И КАРЬЕРЫ
+# =========================================================================
+
+def analyze_wealth_and_career(chart_data: dict) -> dict:
+    """
+    Детальный анализ финансового кода, богатства и карьеры по натальной карте.
+    Анализирует:
+    - 2-й дом (Дхана: накопления, личные активы)
+    - 11-й дом (Лабха: доходы, бизнес, проекты, масштабирование)
+    - 10-й дом (Карма: призвание, авторитет, статус)
+    - Дхана-йоги и Раджа-йоги
+    - Аматьякараку (AmK)
+    """
     houses = chart_data.get("houses", [])
+    house_by_num = {h.get("number"): h for h in houses if isinstance(h, dict)}
 
-    # Индекс планет по имени
-    planet_map = {p["name"]: p for p in planets}
+    h2 = house_by_num.get(2, {})
+    h11 = house_by_num.get(11, {})
+    h10 = house_by_num.get(10, {})
 
-    # === 1. Гаджакешари йога: Юпитер в кендре от Луны ===
-    moon = planet_map.get("Moon")
-    jupiter = planet_map.get("Jupiter")
-    if moon and jupiter:
-        moon_sign_idx = SIGNS_ORDER.index(moon["sign"]) if moon["sign"] in SIGNS_ORDER else -1
-        jup_sign_idx = SIGNS_ORDER.index(jupiter["sign"]) if jupiter["sign"] in SIGNS_ORDER else -1
-        if moon_sign_idx >= 0 and jup_sign_idx >= 0:
-            dist = (jup_sign_idx - moon_sign_idx) % 12
-            if dist in [0, 3, 6, 9]:  # Кендры = 1, 4, 7, 10-й знак
-                yogas.append({
-                    "name": "Gajakeshari Yoga",
-                    "name_ru": "🐘 Гаджакешари Йога",
-                    "type": "success",
-                    "description": "Юпитер в кендре от Луны — йога мудрости, славы и благосостояния.",
-                    "planets": ["Moon", "Jupiter"],
-                    "active": True,
+    h2_lord = h2.get("lord", "unknown")
+    h11_lord = h11.get("lord", "unknown")
+    h10_lord = h10.get("lord", "unknown")
+
+    # Дхана-йоги
+    all_yogas = detect_yogas(chart_data)
+    dhana_yogas = [y for y in all_yogas if (y.get("type") == "dhana" or "Дхана" in y.get("name_ru", "")) and y.get("active")]
+    raja_yogas = [y for y in all_yogas if (y.get("type") == "raja" or "Раджа" in y.get("name_ru", "")) and y.get("active")]
+
+    # Чара-караки для карьеры
+    ck = calculate_chara_karakas(chart_data)
+    amk = ck.get("amatyakaraka")
+
+    return {
+        "house_2": {
+            "sign_ru": h2.get("sign_ru", "Неизвестно"),
+            "lord_ru": h2.get("lord_ru", PLANET_NAMES_RU.get(h2_lord, h2_lord)),
+            "occupants": [PLANET_NAMES_RU.get(p, p) for p in h2.get("occupants", [])],
+        },
+        "house_11": {
+            "sign_ru": h11.get("sign_ru", "Неизвестно"),
+            "lord_ru": h11.get("lord_ru", PLANET_NAMES_RU.get(h11_lord, h11_lord)),
+            "occupants": [PLANET_NAMES_RU.get(p, p) for p in h11.get("occupants", [])],
+        },
+        "house_10": {
+            "sign_ru": h10.get("sign_ru", "Неизвестно"),
+            "lord_ru": h10.get("lord_ru", PLANET_NAMES_RU.get(h10_lord, h10_lord)),
+            "occupants": [PLANET_NAMES_RU.get(p, p) for p in h10.get("occupants", [])],
+        },
+        "dhana_yogas": dhana_yogas,
+        "raja_yogas": raja_yogas,
+        "amatyakaraka": amk,
+    }
+
+
+def format_wealth_analysis(wealth_data: dict) -> str:
+    """Форматировать финансовый разбор для Telegram."""
+    lines = ["💰 *Финансовый код и Карьера (Дхана & Карма бхавы)*\n"]
+
+    h2 = wealth_data["house_2"]
+    h11 = wealth_data["house_11"]
+    h10 = wealth_data["house_10"]
+
+    lines.append("🏦 *2-й дом (Накопления и сбережения):*")
+    lines.append(f"• Знак: {h2['sign_ru']} | Управитель: *{h2['lord_ru']}*")
+    occ2 = ", ".join(h2["occupants"]) if h2["occupants"] else "нет планет (чистый потенциал)"
+    lines.append(f"• Планеты в доме: {occ2}\n")
+
+    lines.append("📈 *11-й дом (Прибыль, бизнес и сверхдоходы):*")
+    lines.append(f"• Знак: {h11['sign_ru']} | Управитель: *{h11['lord_ru']}*")
+    occ11 = ", ".join(h11["occupants"]) if h11["occupants"] else "нет планет"
+    lines.append(f"• Планеты в доме: {occ11}\n")
+
+    lines.append("🏛️ *10-й дом (Карьера, статус и признание):*")
+    lines.append(f"• Знак: {h10['sign_ru']} | Управитель: *{h10['lord_ru']}*")
+    occ10 = ", ".join(h10["occupants"]) if h10["occupants"] else "нет планет"
+    lines.append(f"• Планеты в доме: {occ10}\n")
+
+    amk = wealth_data.get("amatyakaraka")
+    if amk:
+        lines.append(f"💼 *Аматьякарака (Вектор призвания):* *{amk['planet_ru']}* в доме {amk['house']} ({amk['sign_ru']})")
+        lines.append("  Максимальный финансовый рост происходит через развитие профессиональных качеств этой планеты.\n")
+
+    dy = wealth_data.get("dhana_yogas", [])
+    if dy:
+        lines.append(f"✨ *Обнаружено Дхана-йог (комбинаций богатства):* {len(dy)}")
+        for y in dy:
+            lines.append(f"  • *{y.get('name_ru', y.get('name'))}*: {y.get('description', '')}")
+    else:
+        lines.append("✨ *Дхана-йоги:* Классические связки домов богатства умеренные. Финансовый рост строится через профессиональное мастерство 10-го дома и транзитные периоды.")
+
+    return "\n".join(lines).strip()
+
+
+# =========================================================================
+# КУДЖА-ДОША (МАНГЛИКА / ПОВРЕЖДЕНИЕ МАРСОМ В СОВМЕСТИМОСТИ)
+# =========================================================================
+
+def check_kuja_dosha(chart_data: dict) -> dict:
+    """
+    Проверка Куджа-доши (Манглика / Mars dosha).
+    Марс в домах 1, 4, 7, 8 или 12 от Лагны.
+    Проверяет также правила отмены (нейтрализации).
+    """
+    planets = chart_data.get("planets", [])
+    mars = next((p for p in planets if p.get("name") == "Mars"), None)
+    if not mars:
+        return {"has_dosha": False, "is_manglik_placement": False, "reason": "Марс не найден"}
+
+    mars_house = mars.get("house", 0)
+    mars_sign = mars.get("sign", "")
+    mars_sign_ru = mars.get("sign_ru", mars_sign)
+
+    manglik_houses = [1, 4, 7, 8, 12]
+    is_manglik = mars_house in manglik_houses
+
+    is_cancelled = False
+    cancel_reason = ""
+
+    if is_manglik:
+        if mars_sign in ["Aries", "Scorpio"]:
+            is_cancelled = True
+            cancel_reason = "Марс находится в собственном знаке (Свакшетра), агрессия трансформируется в созидательную энергию."
+        elif mars_sign == "Capricorn":
+            is_cancelled = True
+            cancel_reason = "Марс в экзальтации (Учча) — высочайшая дисциплина и благородство вместо конфликтов."
+        else:
+            jupiter = next((p for p in planets if p.get("name") == "Jupiter"), None)
+            if jupiter and jupiter.get("sign") == mars_sign:
+                is_cancelled = True
+                cancel_reason = "Юпитер соединён с Марсом (Гуру-Мангала йога), смягчая импульсивность мудростью."
+
+    return {
+        "has_dosha": is_manglik and not is_cancelled,
+        "is_manglik_placement": is_manglik,
+        "mars_house": mars_house,
+        "mars_sign_ru": mars_sign_ru,
+        "is_cancelled": is_cancelled,
+        "cancel_reason": cancel_reason,
+    }
+
+
+# =========================================================================
+# ВЕДИЧЕСКИЕ УПАЙИ (КОМПЕНСАТОРИКА И СРЕДСТВА ГАРМОНИЗАЦИИ)
+# =========================================================================
+
+UPAYA_CATALOG = {
+    "Sun": {
+        "planet_ru": "Сурья (Солнце)",
+        "day": "Воскресенье",
+        "mantra": "Ом Храм Хрим Храум Сах Сурьяйя Намаха",
+        "colors": "Золотой, оранжевый, медный, шафрановый",
+        "charity": "Помощь отцу, пожилым лидерам, пожертвования пшеницы или золота",
+        "practices": "Встреча рассветов (Сурья Намаскар), развитие щедрости, держание обещаний",
+    },
+    "Moon": {
+        "planet_ru": "Чандра (Луна)",
+        "day": "Понедельник",
+        "mantra": "Ом Шрам Шрим Шраум Сах Чандрайя Намаха",
+        "colors": "Белый, молочный, серебристый, перламутровый",
+        "charity": "Помощь матери, забота о детях и женщинах, раздача риса и чистой воды",
+        "practices": "Медитации на воду, вечерние прогулки при Луне, нормализация сна, отказ от ссор на ночь",
+    },
+    "Mars": {
+        "planet_ru": "Мангала (Марс)",
+        "day": "Вторник",
+        "mantra": "Ом Крам Крим Краум Сах Бхаумайя Намаха",
+        "colors": "Коралловый, алый, ярко-красный",
+        "charity": "Помощь военным, спортсменам, приютам, донорство крови",
+        "practices": "Регулярный спорт/физическая активность, контроль гнева, защита слабых, исключение агрессии",
+    },
+    "Mercury": {
+        "planet_ru": "Будха (Меркурий)",
+        "day": "Среда",
+        "mantra": "Ом Брам Брим Браум Сах Будхайя Намаха",
+        "colors": "Изумрудный, светло-зелёный, оливковый",
+        "charity": "Помощь студентам, сиротам, дарение книг и канцелярских товаров",
+        "practices": "Изучение новых языков, осознанность в речи (без сплетен и сарказма), прогулки в лесу",
+    },
+    "Jupiter": {
+        "planet_ru": "Гуру (Юпитер)",
+        "day": "Четверг",
+        "mantra": "Ом Грам Грим Граум Сах Гураве Намаха",
+        "colors": "Жёлтый, шафрановый, горчичный, золотистый",
+        "charity": "Помощь духовным учителям, наставникам, храмам, пожертвование книг и нута",
+        "practices": "Уважение к наставникам и закону, чтение мудрых книг, благотворительность, чистота помыслов",
+    },
+    "Venus": {
+        "planet_ru": "Шукра (Венера)",
+        "day": "Пятница",
+        "mantra": "Ом Драм Дрим Драум Сах Шукрайя Намаха",
+        "colors": "Белоснежный, пастельно-розовый, радужный, шёлковые ткани",
+        "charity": "Помощь женщинам, артистам, подарки сладостей, цветов и красивой одежды",
+        "practices": "Чистота и эстетика в доме, верность партнёру, творчество (музыка, дизайн), тонкие ароматы",
+    },
+    "Saturn": {
+        "planet_ru": "Шани (Сатурн)",
+        "day": "Суббота",
+        "mantra": "Ом Прам Прим Праум Сах Шанайшчарайя Намаха",
+        "colors": "Тёмно-синий, графитовый, чёрный",
+        "charity": "Помощь пожилым людям, инвалидам, рабочим и бездомным животным",
+        "practices": "Субботний пост/аскеза, пунктуальность, наведение порядка, отказ от жалоб на судьбу",
+    },
+    "Rahu": {
+        "planet_ru": "Раху",
+        "day": "Суббота / вечер",
+        "mantra": "Ом Бхрам Бхрим Бхраум Сах Рахаве Намаха",
+        "colors": "Дымчатый, ультрамарин, цвет ночного неба",
+        "charity": "Помощь бездомным, приютам для бездомных животных",
+        "practices": "Отказ от алкоголя и интоксикаций, цифровой детокс, избегание иллюзий и азартных игр",
+    },
+    "Ketu": {
+        "planet_ru": "Кету",
+        "day": "Вторник / рассвет",
+        "mantra": "Ом Страм Стрим Страум Сах Кетаве Намаха",
+        "colors": "Коричневый, терракотовый, хаки",
+        "charity": "Помощь монахам, странникам, духовным центрам",
+        "practices": "Медитация, йога, уединение на природе, избавление от хлама и старых вещей",
+    },
+}
+
+
+def get_upayas(chart_data: dict) -> dict:
+    """
+    Подобрать персональные Упайи на основе карты:
+    - Для управителя текущей Махадаши
+    - Для планет в падении / слабой позиции
+    - Для Сатурна (если активен Саде-Сати)
+    """
+    remedies = []
+    curr_dasha = get_current_dasha(chart_data)
+    md_planet = None
+    if curr_dasha and curr_dasha.get("maha_dasha"):
+        md_planet = curr_dasha["maha_dasha"].get("planet")
+        if md_planet in UPAYA_CATALOG:
+            remedies.append({
+                "reason": f"Хозяин текущего периода жизни (Махадаша {curr_dasha['maha_dasha'].get('planet_ru', md_planet)})",
+                **UPAYA_CATALOG[md_planet]
+            })
+
+    for p in chart_data.get("planets", []):
+        pname = p.get("name")
+        if p.get("dignity") == "Debilitated" and pname in UPAYA_CATALOG:
+            if pname != md_planet:
+                remedies.append({
+                    "reason": f"Планета в падении ({p.get('name_ru', pname)} в {p.get('sign_ru')}) — требует гармонизации",
+                    **UPAYA_CATALOG[pname]
                 })
 
-    # === 2. Будхадитья йога: Солнце и Меркурий в одном знаке ===
-    sun = planet_map.get("Sun")
-    mercury = planet_map.get("Mercury")
-    if sun and mercury and sun["sign"] == mercury["sign"]:
-        yogas.append({
-            "name": "Budhaditya Yoga",
-            "name_ru": "☀️ Будхадитья Йога",
-            "type": "intellect",
-            "description": "Солнце и Меркурий соединены — йога интеллекта и красноречия.",
-            "planets": ["Sun", "Mercury"],
-            "active": True,
+    sade = check_sade_sati(chart_data)
+    if sade.get("active") and not any(r.get("planet_ru", "").startswith("Шани") for r in remedies):
+        remedies.append({
+            "reason": f"Активный период Саде-Сати ({sade.get('phase_ru', 'Транзит Сатурна')})",
+            **UPAYA_CATALOG["Saturn"]
         })
 
-    # === 3. Панча Махапуруша йоги ===
-    mahapurusha_names = {
-        "Mars": ("Ручака", "Ruchaka", "силы и мужества"),
-        "Mercury": ("Бхадра", "Bhadra", "интеллекта и общения"),
-        "Jupiter": ("Хамса", "Hamsa", "духовности и мудрости"),
-        "Venus": ("Малавья", "Malavya", "красоты и комфорта"),
-        "Saturn": ("Шаша", "Shasha", "дисциплины и власти"),
-    }
-    for planet_name, (ru_name, en_name, quality) in mahapurusha_names.items():
-        p = planet_map.get(planet_name)
-        if not p:
-            continue
-        sign = p.get("sign")
-        house = p.get("house")
-        is_exalted = sign == PLANET_EXALTATION.get(planet_name)
-        is_own = sign in PLANET_OWN_SIGNS.get(planet_name, [])
-        is_kendra = house in KENDRA_HOUSES
-        if (is_exalted or is_own) and is_kendra:
-            yogas.append({
-                "name": f"{en_name} Yoga",
-                "name_ru": f"🏛️ {ru_name} Йога ({en_name})",
-                "type": "mahapurusha",
-                "description": f"{PLANET_NAMES_RU.get(planet_name, planet_name)} в своём знаке или экзальтации в кендре — йога {quality}.",
-                "planets": [planet_name],
-                "active": True,
+    if not remedies and chart_data.get("houses") and isinstance(chart_data["houses"][0], dict):
+        asc_lord = chart_data["houses"][0].get("lord")
+        if asc_lord in UPAYA_CATALOG:
+            remedies.append({
+                "reason": "Лагнеша (Хозяин восходящего знака — основа жизненной силы)",
+                **UPAYA_CATALOG[asc_lord]
             })
 
-    # === 4. Раджа-йоги: связь хозяев кендр и трикон ===
-    # Построить маппинг: хозяин → дом
-    lord_to_houses = {}
-    for h in houses:
-        lord = h.get("lord")
-        num = h.get("number")
-        if lord:
-            lord_to_houses.setdefault(lord, []).append(num)
+    return {"remedies": remedies}
 
-    kendra_lords = set()
-    trikona_lords = set()
-    for lord, h_list in lord_to_houses.items():
-        if any(h in KENDRA_HOUSES for h in h_list):
-            kendra_lords.add(lord)
-        if any(h in TRIKONA_HOUSES for h in h_list):
-            trikona_lords.add(lord)
 
-    # Планеты, являющиеся одновременно хозяевами кендры и триконы
-    raja_lords = kendra_lords & trikona_lords
-    # Или планеты-хозяева кендр и трикон, находящиеся в одном знаке
-    for kl in kendra_lords:
-        for tl in trikona_lords:
-            if kl == tl:
-                continue
-            kl_p = planet_map.get(kl)
-            tl_p = planet_map.get(tl)
-            if kl_p and tl_p and kl_p.get("sign") == tl_p.get("sign"):
-                yogas.append({
-                    "name": "Raja Yoga",
-                    "name_ru": f"👑 Раджа Йога ({PLANET_NAMES_RU.get(kl, kl)} + {PLANET_NAMES_RU.get(tl, tl)})",
-                    "type": "raja",
-                    "description": f"Соединение хозяина кендры ({kl}) и хозяина триконы ({tl}) — йога власти и успеха.",
-                    "planets": [kl, tl],
-                    "active": True,
-                })
+def format_upayas(upaya_data: dict) -> str:
+    """Форматировать рекомендации по Упайям для Telegram."""
+    lines = ["🛡️ *Ведические Упайи (Методы гармонизации карты)*\n"]
+    lines.append("Упайи — это ведические инструменты коррекции судьбы через осознанные действия, мантры и благотворительность:\n")
 
-    # Одна планета — хозяин и кендры, и триконы
-    for lord in raja_lords:
-        h_list = lord_to_houses[lord]
-        k_houses = [h for h in h_list if h in KENDRA_HOUSES]
-        t_houses = [h for h in h_list if h in TRIKONA_HOUSES]
-        if k_houses and t_houses:
-            yogas.append({
-                "name": "Raja Yoga",
-                "name_ru": f"👑 Раджа Йога ({PLANET_NAMES_RU.get(lord, lord)})",
-                "type": "raja",
-                "description": f"{PLANET_NAMES_RU.get(lord, lord)} — хозяин и кендры ({k_houses}), и триконы ({t_houses}).",
-                "planets": [lord],
-                "active": True,
-            })
+    for r in upaya_data.get("remedies", []):
+        lines.append(f"🪐 *{r['planet_ru']}*")
+        lines.append(f"📍 *Причина:* {r['reason']}")
+        lines.append(f"📅 *День для практики:* {r['day']}")
+        lines.append(f"📿 *Мантра (108 раз):* `{r['mantra']}`")
+        lines.append(f"🎨 *Благоприятные цвета:* {r['colors']}")
+        lines.append(f"🤝 *Благотворительность:* {r['charity']}")
+        lines.append(f"✨ *Поведенческая практика:* {r['practices']}\n")
 
-    # === 5. Дхана-йоги: связь хозяев домов богатства (2, 5, 9, 11) с кендрами ===
-    dhana_lords = set()
-    for lord, h_list in lord_to_houses.items():
-        if any(h in DHANA_HOUSES for h in h_list):
-            dhana_lords.add(lord)
+    return "\n".join(lines).strip()
 
-    for dl in dhana_lords:
-        for kl in kendra_lords:
-            if dl == kl:
-                continue
-            dl_p = planet_map.get(dl)
-            kl_p = planet_map.get(kl)
-            if dl_p and kl_p and dl_p.get("sign") == kl_p.get("sign"):
-                yogas.append({
-                    "name": "Dhana Yoga",
-                    "name_ru": f"💰 Дхана Йога ({PLANET_NAMES_RU.get(dl, dl)} + {PLANET_NAMES_RU.get(kl, kl)})",
-                    "type": "dhana",
-                    "description": f"Соединение хозяина дома богатства ({dl}) и хозяина кендры ({kl}) — йога финансового благополучия.",
-                    "planets": [dl, kl],
-                    "active": True,
-                })
-
-    return yogas
 
 
 def format_chart_summary(chart_data: dict) -> str:

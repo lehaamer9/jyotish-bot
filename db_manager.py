@@ -165,6 +165,14 @@ def init_db(db_path: Optional[str] = None) -> None:
                 updated_at TEXT NOT NULL
             );
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id INTEGER PRIMARY KEY,
+                free_ask_used INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+        """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_profiles_user ON profiles(user_id);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_profiles_user_active ON profiles(user_id, is_active);")
         conn.commit()
@@ -487,4 +495,41 @@ def get_system_stats(db_path: Optional[str] = None) -> Dict[str, Any]:
             "total_profiles": total_profiles,
             "recent_profiles": recent_profiles,
         }
+
+
+def is_free_ask_available(user_id: int, db_path: Optional[str] = None) -> bool:
+    """Проверить, доступен ли пользователю бесплатный первый вопрос к ИИ."""
+    path = db_path or DB_PATH
+    try:
+        with get_db(path) as conn:
+            cur = conn.execute(
+                "SELECT free_ask_used FROM user_settings WHERE user_id = ?;",
+                (user_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                return True
+            return int(row["free_ask_used"]) == 0
+    except Exception as e:
+        logger.warning(f"Ошибка проверки бесплатного вопроса для {user_id}: {e}")
+        return True
+
+
+def mark_free_ask_used(user_id: int, db_path: Optional[str] = None) -> None:
+    """Отметить, что пользователь использовал свой бесплатный вопрос к ИИ."""
+    path = db_path or DB_PATH
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_db(path) as conn:
+            conn.execute("""
+                INSERT INTO user_settings (user_id, free_ask_used, created_at, updated_at)
+                VALUES (?, 1, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    free_ask_used = 1,
+                    updated_at = excluded.updated_at;
+            """, (user_id, now_iso, now_iso))
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Ошибка фиксации использования бесплатного вопроса для {user_id}: {e}")
+
 
