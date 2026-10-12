@@ -113,7 +113,7 @@ YOGA_INTERPRETATION_PROMPT = """Проанализируй ведические 
 CANDIDATE_MODELS = [
     "gemini-3.8-flash",
     "gemini-2.5-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-3.5-flash-lite",
 ]
 
 # Таймаут на один запрос к Gemini (секунды)
