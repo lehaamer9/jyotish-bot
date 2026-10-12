@@ -189,6 +189,93 @@ class TestProfilesIntegration(unittest.TestCase):
         self.assertEqual(active["id"], id1)
         self.assertEqual(active["profile_name"], "Основной")
 
+    async def _run_start_command_with_profile(self, has_profile: bool):
+        update_mock = MagicMock()
+        update_mock.effective_user.id = self.user_id
+        update_mock.effective_message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {}
+
+        if has_profile:
+            save_profile(
+                user_id=self.user_id,
+                profile_name="Мой гороскоп",
+                birth_dt=datetime(1990, 5, 15, 10, 30),
+                place_name="Москва",
+                resolved_address="Москва",
+                lat=55.75,
+                lon=37.61,
+                tz_offset=3.0,
+                chart_data={},
+                summary="",
+                set_as_active=True,
+                db_path=self.db_path,
+            )
+
+        await bot.start_command(update_mock, context_mock)
+        return update_mock.effective_message.reply_text.call_args[0][0]
+
+    def test_start_command_renders_active_profile(self):
+        import asyncio
+        # С профилем
+        text_with_prof = asyncio.run(self._run_start_command_with_profile(True))
+        self.assertIn("Твой активный профиль", text_with_prof)
+        self.assertIn("Мой гороскоп", text_with_prof)
+
+        # Без профиля
+        clear_user_profiles(self.user_id, db_path=self.db_path)
+        text_without_prof = asyncio.run(self._run_start_command_with_profile(False))
+        self.assertNotIn("Твой активный профиль", text_without_prof)
+        self.assertIn("нажми /chart, чтобы начать", text_without_prof)
+
+    def test_newprofile_start_resets_editing_id(self):
+        import asyncio
+        update_mock = MagicMock()
+        update_mock.effective_message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {"editing_profile_id": 123}
+
+        state = asyncio.run(bot.newprofile_start(update_mock, context_mock))
+        self.assertEqual(state, bot.WAITING_PROFILE_NAME)
+        self.assertIsNone(context_mock.user_data["editing_profile_id"])
+
+    def test_cancel_command_cleans_temporary_data(self):
+        import asyncio
+        update_mock = MagicMock()
+        update_mock.effective_message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {
+            "temp_dob": datetime.now().date(),
+            "temp_tob": datetime.now().time(),
+            "temp_profile_name": "Жена",
+            "editing_profile_id": 5,
+            "compat_dob": datetime.now().date(),
+            "compat_tob": datetime.now().time(),
+            "permanent_key": "keep_this",
+        }
+
+        asyncio.run(bot.cancel_command(update_mock, context_mock))
+        self.assertNotIn("temp_dob", context_mock.user_data)
+        self.assertNotIn("temp_tob", context_mock.user_data)
+        self.assertNotIn("temp_profile_name", context_mock.user_data)
+        self.assertNotIn("editing_profile_id", context_mock.user_data)
+        self.assertNotIn("compat_dob", context_mock.user_data)
+        self.assertNotIn("compat_tob", context_mock.user_data)
+        self.assertEqual(context_mock.user_data["permanent_key"], "keep_this")
+
+    def test_profile_name_received_cancel_trigger(self):
+        import asyncio
+        update_mock = MagicMock()
+        update_mock.message.text = "Отмена"
+        update_mock.effective_message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {"temp_profile_name": "test"}
+
+        state = asyncio.run(bot.profile_name_received(update_mock, context_mock))
+        # При вводе 'Отмена' должен сработать cancel_command и вернуть ConversationHandler.END (-1)
+        self.assertEqual(state, bot.ConversationHandler.END)
+        self.assertNotIn("temp_profile_name", context_mock.user_data)
+
 
 if __name__ == "__main__":
     unittest.main()

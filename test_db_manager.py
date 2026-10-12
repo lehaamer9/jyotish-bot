@@ -7,6 +7,7 @@ import os
 import unittest
 import tempfile
 from datetime import datetime
+import db_manager
 from db_manager import (
     init_db,
     save_profile,
@@ -217,6 +218,100 @@ class TestDBManager(unittest.TestCase):
         self.assertIsNone(get_active_profile(99999999, db_path=self.db_path))
         self.assertEqual(get_user_profiles(99999999, db_path=self.db_path), [])
 
+    def test_set_active_profile_invalid_id_does_not_deactivate_existing(self):
+        id1 = save_profile(
+            user_id=self.user_id,
+            profile_name="Мой гороскоп",
+            birth_dt=datetime(1990, 5, 15, 10, 30),
+            place_name="Москва",
+            resolved_address="Москва",
+            lat=55.75,
+            lon=37.61,
+            tz_offset=3.0,
+            chart_data={},
+            summary="Сводка",
+            set_as_active=True,
+            db_path=self.db_path,
+        )
+        # Попытка активировать несуществующий ID
+        res = set_active_profile(999999, self.user_id, db_path=self.db_path)
+        self.assertFalse(res)
+
+        # Существующий профиль должен остаться активным!
+        active = get_active_profile(self.user_id, db_path=self.db_path)
+        self.assertIsNotNone(active)
+        self.assertEqual(active["id"], id1)
+        self.assertTrue(active["is_active"])
+
+    def test_save_profile_invalid_profile_id_falls_back_to_insert(self):
+        new_id = save_profile(
+            user_id=self.user_id,
+            profile_name="Fallback профиль",
+            birth_dt=datetime(1995, 1, 1, 12, 0),
+            place_name="Казань",
+            resolved_address="Казань",
+            lat=55.8,
+            lon=49.1,
+            tz_offset=3.0,
+            chart_data={"test": 1},
+            summary="Сводка",
+            set_as_active=True,
+            profile_id=999999,  # Несуществующий ID
+            db_path=self.db_path,
+        )
+        self.assertNotEqual(new_id, 999999)
+        prof = get_profile_by_id(new_id, self.user_id, db_path=self.db_path)
+        self.assertIsNotNone(prof)
+        self.assertEqual(prof["profile_name"], "Fallback профиль")
+
+    def test_save_profile_with_datetime_in_chart_data(self):
+        now = datetime.now()
+        chart_data_with_dt = {"calc_time": now, "planets": [{"name": "Sun"}]}
+        prof_id = save_profile(
+            user_id=self.user_id,
+            profile_name="Профиль с датой в данных",
+            birth_dt=now,
+            place_name="Рим",
+            resolved_address="Рим",
+            lat=41.9,
+            lon=12.5,
+            tz_offset=2.0,
+            chart_data=chart_data_with_dt,
+            summary="Сводка",
+            db_path=self.db_path,
+        )
+        prof = get_profile_by_id(prof_id, self.user_id, db_path=self.db_path)
+        self.assertIsNotNone(prof)
+        self.assertIn("calc_time", prof["chart_data"])
+
+    def test_row_to_profile_non_iso_datetime(self):
+        import sqlite3
+        with db_manager.get_db(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO profiles (
+                    user_id, profile_name, birth_dt, place_name, resolved_address,
+                    lat, lon, tz_offset, chart_data, summary, is_active, created_at, updated_at
+                ) VALUES (
+                    ?, 'Нестандартная дата', '15.05.1990 10:30', 'Город', '',
+                    0.0, 0.0, 0.0, '{}', '', 1, 'now', 'now'
+                );
+            """, (self.user_id,))
+            conn.commit()
+
+        active = get_active_profile(self.user_id, db_path=self.db_path)
+        self.assertIsNotNone(active)
+        self.assertIsInstance(active["birth_dt"], datetime)
+        self.assertEqual(active["birth_dt"].year, 1990)
+        self.assertEqual(active["birth_dt"].month, 5)
+        self.assertEqual(active["birth_dt"].day, 15)
+
+    def test_init_db_creates_nested_directory(self):
+        nested_dir = os.path.join(self.temp_dir.name, "sub_dir", "deep_dir")
+        nested_db = os.path.join(nested_dir, "nested_jyotish.db")
+        init_db(nested_db)
+        self.assertTrue(os.path.exists(nested_db))
+
 
 if __name__ == "__main__":
+    import db_manager
     unittest.main()

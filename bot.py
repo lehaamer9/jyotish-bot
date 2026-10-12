@@ -174,7 +174,8 @@ def get_main_reply_keyboard():
         ["🔮 Натальная карта", "⏳ Периоды Даша"],
         ["🪐 Саде-Сати", "🧘 Детектор йог"],
         ["❓ Задать вопрос", "💞 Совместимость"],
-        ["👤 Мои профили", "⭐️ Тарифы"],
+        ["👤 Мои профили", "➕ Новый профиль"],
+        ["⭐️ Тарифы", "📖 Справка"],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
@@ -288,6 +289,9 @@ def get_compat_inline_keyboard():
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приветствие и описание возможностей бота."""
+    user_id = update.effective_user.id
+    active_profile = get_user_natal_profile(user_id, context)
+
     greeting = (
         "🙏 *Намасте! Я — ИИ-Джьотиш Астролог.*\n\n"
         "Я сочетаю традиционную ведическую астрологию Парашара Муни "
@@ -313,8 +317,21 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👉 /mydata — посмотреть сохранённые данные\n"
         "👉 /reset — сброс данных\n"
         "👉 /help — справка\n\n"
-        "👇 *Выбери действие на кнопках ниже или нажми /chart:*"
     )
+
+    if active_profile:
+        dt_str = active_profile["birth_dt"].strftime("%d.%m.%Y %H:%M")
+        prof_name = active_profile.get("profile_name", "Мой гороскоп")
+        place = active_profile.get("place_name", "")
+        greeting += (
+            f"👤 *Твой активный профиль:* «{prof_name}»\n"
+            f"📅 Дата: `{dt_str}` | 📍 `{place}`\n\n"
+            "Карта готова! Ты можешь сразу перейти к расчётам или управлять профилями через /profile.\n"
+            "👇 *Выбери действие на кнопках ниже:*"
+        )
+    else:
+        greeting += "👇 *Выбери действие на кнопках ниже или нажми /chart, чтобы начать:*"
+
     await update.effective_message.reply_text(
         greeting,
         parse_mode="Markdown",
@@ -531,6 +548,9 @@ async def recalc_callback_start(update: Update, context: ContextTypes.DEFAULT_TY
 async def profile_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение имени нового профиля."""
     name = update.message.text.strip()
+    if name.lower() in ("отмена", "❌ отмена", "/cancel"):
+        return await cancel_command(update, context)
+
     if not name or len(name) > 50:
         await update.message.reply_text("Пожалуйста, укажи понятное имя (до 50 символов):")
         return WAITING_PROFILE_NAME
@@ -569,6 +589,9 @@ async def chart_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def chart_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение даты рождения."""
     text = update.message.text.strip()
+    if text.lower() in ("отмена", "❌ отмена", "/cancel"):
+        return await cancel_command(update, context)
+
     try:
         dob = datetime.strptime(text, "%d.%m.%Y").date()
         context.user_data["temp_dob"] = dob
@@ -591,6 +614,9 @@ async def chart_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def chart_tob_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение времени рождения."""
     text = update.message.text.strip()
+    if text.lower() in ("отмена", "❌ отмена", "/cancel"):
+        return await cancel_command(update, context)
+
     try:
         tob = datetime.strptime(text, "%H:%M").time()
         context.user_data["temp_tob"] = tob
@@ -612,6 +638,8 @@ async def chart_tob_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def chart_place_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение города, геокодинг, расчёт карты и генерация ИИ-интерпретации."""
     place_input = update.message.text.strip()
+    if place_input.lower() in ("отмена", "❌ отмена", "/cancel"):
+        return await cancel_command(update, context)
     dob = context.user_data.get("temp_dob")
     tob = context.user_data.get("temp_tob")
 
@@ -916,6 +944,9 @@ async def compat_partner_selected(update: Update, context: ContextTypes.DEFAULT_
 async def compat_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение даты партнёра."""
     text = update.message.text.strip()
+    if text.lower() in ("отмена", "❌ отмена", "/cancel"):
+        return await cancel_command(update, context)
+
     try:
         dob = datetime.strptime(text, "%d.%m.%Y").date()
         context.user_data["compat_dob"] = dob
@@ -936,6 +967,9 @@ async def compat_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def compat_tob_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение времени партнёра."""
     text = update.message.text.strip()
+    if text.lower() in ("отмена", "❌ отмена", "/cancel"):
+        return await cancel_command(update, context)
+
     try:
         tob = datetime.strptime(text, "%H:%M").time()
         context.user_data["compat_tob"] = tob
@@ -956,9 +990,13 @@ async def compat_tob_received(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Расчёт второй карты и сравнительный анализ."""
     place_input = update.message.text.strip()
+    if place_input.lower() in ("отмена", "❌ отмена", "/cancel"):
+        return await cancel_command(update, context)
+
     dob = context.user_data.get("compat_dob")
     tob = context.user_data.get("compat_tob")
-    my_profile = get_user_natal_profile(update.effective_user.id, context)
+    user_id = update.effective_user.id
+    my_profile = get_user_natal_profile(user_id, context)
 
     if not dob or not tob or not my_profile:
         await update.message.reply_text("Сессия истекла. Начни заново с /compat.")
@@ -979,6 +1017,29 @@ async def compat_place_received(update: Update, context: ContextTypes.DEFAULT_TY
         partner_summary = format_chart_summary(partner_chart)
         context.user_data["partner_chart"] = partner_chart
         context.user_data["partner_summary"] = partner_summary
+
+        # Автоматически сохраняем профиль партнёра как неактивный для повторного использования
+        try:
+            partner_prof_name = "Партнёр"
+            existing = get_user_profiles(user_id)
+            names = [p["profile_name"] for p in existing]
+            if partner_prof_name in names:
+                partner_prof_name = f"Партнёр ({place_input})"
+            save_profile(
+                user_id=user_id,
+                profile_name=partner_prof_name,
+                birth_dt=dt,
+                place_name=place_input,
+                resolved_address=address,
+                lat=lat,
+                lon=lon,
+                tz_offset=tz_offset,
+                chart_data=partner_chart,
+                summary=partner_summary,
+                set_as_active=False,
+            )
+        except Exception as e_save:
+            logger.warning(f"Не удалось автосохранить профиль партнёра: {e_save}")
 
     except Exception as e:
         await status_msg.edit_text(f"❌ Не удалось рассчитать карту партнёра: {e}")
@@ -1461,6 +1522,13 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена текущего ввода и возврат к главному меню."""
+    if context.user_data:
+        context.user_data.pop("temp_dob", None)
+        context.user_data.pop("temp_tob", None)
+        context.user_data.pop("temp_profile_name", None)
+        context.user_data.pop("editing_profile_id", None)
+        context.user_data.pop("compat_dob", None)
+        context.user_data.pop("compat_tob", None)
     await update.effective_message.reply_text(
         "Ввод отменён. Нажми кнопку ниже или /chart в любой момент.",
         reply_markup=get_main_reply_keyboard()
@@ -1511,8 +1579,14 @@ async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not active:
             await query.message.reply_text("Профиль не найден. Начни с /chart.")
             return
+        summary = active.get("summary")
+        if not summary and active.get("chart_data"):
+            try:
+                summary = format_chart_summary(active["chart_data"])
+            except Exception:
+                summary = ""
         header = f"👤 *Натальная карта профиля «{active['profile_name']}»*\n\n"
-        await send_split_message(update, header + active["summary"], reply_markup=get_chart_inline_keyboard())
+        await send_split_message(update, header + (summary or ""), reply_markup=get_chart_inline_keyboard())
 
     elif data == "prof_delete_menu":
         profiles = get_user_profiles(user_id)
@@ -1612,7 +1686,7 @@ async def handle_menu_text_button(update: Update, context: ContextTypes.DEFAULT_
             return await show_active_profile_card(update, context, profile)
         else:
             return await chart_start(update, context)
-    elif text in ("👤 Мои профили", "👤 Профили", "📋 Мои данные"):
+    elif text in ("👤 Мои профили", "👤 Профили", "📋 Мои данные", "🔄 Сменить профиль"):
         return await profile_command(update, context)
     elif text == "⏳ Периоды Даша":
         return await dasha_command(update, context)
@@ -1626,6 +1700,8 @@ async def handle_menu_text_button(update: Update, context: ContextTypes.DEFAULT_
         return await compat_start(update, context)
     elif text == "⭐️ Тарифы":
         return await prices_command(update, context)
+    elif text == "📖 Справка":
+        return await help_command(update, context)
 
 
 async def post_init(application: Application) -> None:
@@ -1727,6 +1803,7 @@ def main():
             CommandHandler("natal", chart_start),
             CommandHandler("newprofile", newprofile_start),
             MessageHandler(filters.Regex(r"^🔮 Натальная карта$"), chart_start),
+            MessageHandler(filters.Regex(r"^(➕ Добавить профиль|➕ Новый профиль)$"), newprofile_start),
             CallbackQueryHandler(newprofile_callback_start, pattern=r"^prof_add_start$"),
             CallbackQueryHandler(recalc_callback_start, pattern=r"^prof_recalc_start$"),
         ],
@@ -1777,7 +1854,6 @@ def main():
     app.add_handler(CommandHandler("prices", prices_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("profiles", profile_command))
-    app.add_handler(CommandHandler("newprofile", newprofile_start))
     app.add_handler(CommandHandler("mydata", mydata_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("dasha", dasha_command))
@@ -1793,7 +1869,7 @@ def main():
     app.add_handler(CallbackQueryHandler(inline_nav_callback))
 
     # Регистрация нажатий на постоянную нижнюю клавиатуру
-    MENU_BUTTON_REGEX = r"^(⏳ Периоды Даша|🪐 Саде-Сати|🧘 Детектор йог|⭐️ Тарифы|📋 Мои данные|👤 Мои профили|👤 Профили)$"
+    MENU_BUTTON_REGEX = r"^(⏳ Периоды Даша|🪐 Саде-Сати|🧘 Детектор йог|⭐️ Тарифы|📋 Мои данные|👤 Мои профили|👤 Профили|🔄 Сменить профиль|📖 Справка)$"
     app.add_handler(MessageHandler(filters.Regex(MENU_BUTTON_REGEX), handle_menu_text_button))
 
     # Регистрация платёжных хэндлеров (Telegram Stars)

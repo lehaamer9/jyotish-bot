@@ -20,6 +20,9 @@ DB_PATH = os.getenv("DATABASE_PATH", DEFAULT_DB_PATH)
 def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     """Создать подключение к SQLite базе данных с поддержкой WAL и Row-фабрики."""
     path = db_path or DB_PATH
+    dir_name = os.path.dirname(os.path.abspath(path))
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -78,14 +81,24 @@ def _row_to_profile(row: sqlite3.Row) -> Dict[str, Any]:
         chart_data = raw_chart
 
     birth_dt_raw = row["birth_dt"]
+    birth_dt = None
     if isinstance(birth_dt_raw, str):
-        try:
-            birth_dt = datetime.fromisoformat(birth_dt_raw)
-        except Exception as e:
-            logger.error(f"Ошибка парсинга birth_dt '{birth_dt_raw}' для профиля {row['id']}: {e}")
-            birth_dt = birth_dt_raw
-    else:
+        for fmt in (None, "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M", "%d.%m.%Y", "%Y-%m-%d"):
+            try:
+                if fmt is None:
+                    birth_dt = datetime.fromisoformat(birth_dt_raw)
+                else:
+                    birth_dt = datetime.strptime(birth_dt_raw, fmt)
+                break
+            except Exception:
+                continue
+        if birth_dt is None:
+            logger.error(f"Не удалось распарсить birth_dt '{birth_dt_raw}' для профиля {row['id']}, fallback на текущее время")
+            birth_dt = datetime.now()
+    elif isinstance(birth_dt_raw, datetime):
         birth_dt = birth_dt_raw
+    else:
+        birth_dt = datetime.now()
 
     return {
         "id": row["id"],
@@ -130,7 +143,7 @@ def save_profile(
     path = db_path or DB_PATH
     now_iso = datetime.now(timezone.utc).isoformat()
     birth_dt_iso = birth_dt.isoformat() if isinstance(birth_dt, datetime) else str(birth_dt)
-    chart_json = json.dumps(chart_data, ensure_ascii=False) if isinstance(chart_data, dict) else str(chart_data)
+    chart_json = json.dumps(chart_data, ensure_ascii=False, default=str) if isinstance(chart_data, dict) else str(chart_data)
 
     with get_db(path) as conn:
         if profile_id is not None:
@@ -138,7 +151,7 @@ def save_profile(
             if set_as_active:
                 conn.execute("UPDATE profiles SET is_active = 0 WHERE user_id = ?;", (user_id,))
             
-            conn.execute("""
+            cur = conn.execute("""
                 UPDATE profiles SET
                     profile_name = ?,
                     birth_dt = ?,
@@ -167,46 +180,47 @@ def save_profile(
                 profile_id,
                 user_id
             ))
-            conn.commit()
-            return profile_id
-        else:
-            # Создание нового профиля
-            if set_as_active:
-                conn.execute("UPDATE profiles SET is_active = 0 WHERE user_id = ?;", (user_id,))
+            if cur.rowcount > 0:
+                conn.commit()
+                return profile_id
 
-            cur = conn.execute("""
-                INSERT INTO profiles (
-                    user_id,
-                    profile_name,
-                    birth_dt,
-                    place_name,
-                    resolved_address,
-                    lat,
-                    lon,
-                    tz_offset,
-                    chart_data,
-                    summary,
-                    is_active,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """, (
+        # Создание нового профиля (если profile_id is None или профиль для обновления не найден)
+        if set_as_active:
+            conn.execute("UPDATE profiles SET is_active = 0 WHERE user_id = ?;", (user_id,))
+
+        cur = conn.execute("""
+            INSERT INTO profiles (
                 user_id,
                 profile_name,
-                birth_dt_iso,
+                birth_dt,
                 place_name,
-                resolved_address or "",
+                resolved_address,
                 lat,
                 lon,
                 tz_offset,
-                chart_json,
-                summary or "",
-                1 if set_as_active else 0,
-                now_iso,
-                now_iso
-            ))
-            conn.commit()
-            return cur.lastrowid
+                chart_data,
+                summary,
+                is_active,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (
+            user_id,
+            profile_name,
+            birth_dt_iso,
+            place_name,
+            resolved_address or "",
+            lat,
+            lon,
+            tz_offset,
+            chart_json,
+            summary or "",
+            1 if set_as_active else 0,
+            now_iso,
+            now_iso
+        ))
+        conn.commit()
+        return cur.lastrowid
 
 
 def get_active_profile(user_id: int, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -268,6 +282,9 @@ def set_active_profile(profile_id: int, user_id: int, db_path: Optional[str] = N
     """Сделать выбранный профиль активным для пользователя."""
     path = db_path or DB_PATH
     with get_db(path) as conn:
+        cur = conn.execute("SELECT id FROM profiles WHERE id = ? AND user_id = ?;", (profile_id, user_id))
+        if not cur.fetchone():
+            return False
         conn.execute("UPDATE profiles SET is_active = 0 WHERE user_id = ?;", (user_id,))
         cur = conn.execute(
             "UPDATE profiles SET is_active = 1, updated_at = ? WHERE id = ? AND user_id = ?;",
