@@ -45,6 +45,7 @@ from telegram.ext import (
 )
 from telegram.ext.filters import MessageFilter
 from input_parser import parse_one_line_profile
+from chart_renderer import render_kundli_chart
 
 from jyotish_engine import (
     compute_chart,
@@ -235,6 +236,9 @@ def get_start_inline_keyboard():
 def get_chart_inline_keyboard():
     """Инлайн-кнопки следующих шагов после расчета натальной карты."""
     return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🖼 Изображение карты (D1)", callback_data="nav_chart_img"),
+        ],
         [
             InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
             InlineKeyboardButton("🪐 Саде-Сати", callback_data="nav_sadesati"),
@@ -456,8 +460,12 @@ async def show_active_profile_card(update: Update, context: ContextTypes.DEFAULT
     )
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📜 Показать карту", callback_data="prof_view_active"),
+            InlineKeyboardButton("🖼 Изображение карты", callback_data="nav_chart_img"),
+            InlineKeyboardButton("📜 Полный разбор", callback_data="prof_view_active"),
+        ],
+        [
             InlineKeyboardButton("⏳ Периоды Даша", callback_data="nav_dasha"),
+            InlineKeyboardButton("🪐 Саде-Сати", callback_data="nav_sadesati"),
         ],
         [
             InlineKeyboardButton("👤 Мои профили", callback_data="prof_menu"),
@@ -780,6 +788,24 @@ async def process_and_save_chart(
 
         # Отправляем астрономический расчёт бесплатно всем
         await status_msg.delete()
+
+        # Генерируем и отправляем графическую карту Кундли D1
+        try:
+            chart_img = render_kundli_chart(
+                chart_data=chart_data,
+                profile_name=profile_name,
+                dob_str=dob.strftime("%d.%m.%Y"),
+                tob_str=tob.strftime("%H:%M"),
+                place_str=place_input,
+            )
+            await update.effective_message.reply_photo(
+                photo=chart_img,
+                caption=f"🔮 *Ведическая карта Кундли (D1): {profile_name}*",
+                parse_mode="Markdown"
+            )
+        except Exception as img_err:
+            logger.warning(f"Не удалось отправить изображение карты: {img_err}")
+
         header = f"🎉 *Профиль «{profile_name}» сохранён в базу!*\n\n"
         await send_split_message(update, header + summary)
 
@@ -1567,32 +1593,84 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = check_sade_sati(chart_data)
         prof_title = f" (Профиль: «{profile.get('profile_name', 'Мой гороскоп')}»)"
 
+        moon_ru = result.get("natal_moon_sign_ru") or result.get("natal_moon_sign")
+        saturn_ru = result.get("transit_saturn_sign_ru") or result.get("saturn_sign")
+
         if result["active"]:
             phase_names = {
                 "rising": "🌅 Восходящая фаза (Сатурн в 12-м знаке от Луны)",
-                "peak": "🔥 Пиковая фаза (Сатурн в знаке Луны)",
+                "peak": "🔥 Пиковая фаза (Сатурн в знаке натальной Луны)",
                 "setting": "🌇 Нисходящая фаза (Сатурн во 2-м знаке от Луны)",
             }
             phase_text = phase_names.get(result["phase"], result["phase"])
+            cyc = result.get("current_cycle") or {}
+            cur_p_start = cyc.get("phase_start_ru", "")
+            cur_p_end = cyc.get("phase_end_ru", "")
+            full_end = cyc.get("end_date_ru", "")
+            start_dt = cyc.get("start_date_ru", "")
+
+            date_block = (
+                f"📅 *Даты текущего периода:*\n"
+                f"• Начало Саде-Сати: *{start_dt}*\n"
+                f"• Текущая фаза: с *{cur_p_start}* по *{cur_p_end}*\n"
+                f"• 🏁 *Полное окончание Саде-Сати: {full_end}*\n\n"
+            ) if cyc else ""
+
             text = (
-                f"🪐 *Саде-Сати — АКТИВНА!*{prof_title}\n\n"
-                f"🌙 Твоя натальная Луна: *{result['natal_moon_sign']}*\n"
-                f"🪐 Транзитный Сатурн: *{result['saturn_sign']}*\n\n"
-                f"📍 Фаза: {phase_text}\n\n"
+                f"🪐 *Саде-Сати — АКТИВЕН!*{prof_title}\n\n"
+                f"🌙 Твоя натальная Луна: *{moon_ru}*\n"
+                f"🪐 Транзитный Сатурн: *{saturn_ru}*\n\n"
+                f"📍 *Фаза:* {phase_text}\n\n"
+                f"{date_block}"
                 "⏳ Саде-Сати длится ~7.5 лет — это период кармической трансформации, "
-                "глубоких уроков и духовного роста.\n\n"
-                "💡 *Упайя (гармонизация):* пение мантры Шани — *«Ом Шам Шанайе Намаха»* — "
-                "по субботам, ношение синего сапфира (после консультации), служение пожилым людям."
+                "глубоких жизненных уроков и духовного роста.\n\n"
+                "💡 *Упайя (гармонизация Сатурна):*\n"
+                "• Пение мантры Шани: *«Ом Шам Шанайе Намаха»* (108 раз по субботам)\n"
+                "• По субботам: вегетарианство или пост, отказ от алкоголя\n"
+                "• Служение, помощь пожилым людям и приютам животных\n"
+                "• Цвета субботы: тёмно-синий, графитовый, чёрный"
             )
         else:
+            nxt = result.get("next_cycle") or {}
+            prev = result.get("prev_cycle") or {}
+            s12_ru = result.get("sign_12_ru", "")
+            s1_ru = result.get("sign_1_ru", "")
+            s2_ru = result.get("sign_2_ru", "")
+
+            next_block = ""
+            if nxt:
+                p1 = nxt.get("phase1_start_ru")
+                p2 = nxt.get("phase2_start_ru")
+                p3 = nxt.get("phase3_start_ru")
+                n_end = nxt.get("end_date_ru")
+                y_left = nxt.get("years_left", 1)
+                next_block = (
+                    f"📅 *Когда начнётся следующий период Саде-Сати:*\n"
+                    f"• 🌅 *Фаза 1 (Нарастание):* с *{p1}* (вход Сатурна в {s12_ru})\n"
+                    f"• 🔥 *Фаза 2 (Пик):* с *{p2}* (вход Сатурна в {s1_ru})\n"
+                    f"• 🌇 *Фаза 3 (Спад):* с *{p3}* (вход Сатурна в {s2_ru})\n"
+                    f"• 🏁 *Окончание периода:* *{n_end}*\n"
+                    f"⏳ До начала следующего Саде-Сати: *~{y_left} лет* (время спокойствия и созидания!).\n\n"
+                )
+
+            prev_block = ""
+            if prev:
+                pr_start = prev.get("start_date_ru")
+                pr_end = prev.get("end_date_ru")
+                prev_block = (
+                    f"⏪ *Предыдущий Саде-Сати был:*\n"
+                    f"• С *{pr_start}* по *{pr_end}* (~7.5 лет назад уроки уже пройдены).\n\n"
+                )
+
             text = (
-                f"🪐 *Саде-Сати — НЕ активна*{prof_title}\n\n"
-                f"🌙 Твоя натальная Луна: *{result['natal_moon_sign']}*\n"
-                f"🪐 Транзитный Сатурн: *{result['saturn_sign']}*\n\n"
-                "✅ Сейчас период Саде-Сати не затрагивает твою Луну. "
-                "Влияние Сатурна менее интенсивно.\n\n"
+                f"🪐 *Саде-Сати — НЕ АКТИВЕН*{prof_title}\n\n"
+                f"🌙 Твоя натальная Луна: *{moon_ru}*\n"
+                f"🪐 Транзитный Сатурн: *{saturn_ru}*\n\n"
+                f"✅ Сейчас транзитный Сатурн не аспектирует натальную Луну. Влияние гармоничное.\n\n"
+                f"{next_block}"
+                f"{prev_block}"
                 "ℹ️ Саде-Сати наступает, когда транзитный Сатурн проходит "
-                "через 12-й, 1-й и 2-й знаки от натальной Луны (~7.5 лет)."
+                "через 12-й, 1-й и 2-й знаки от натальной Луны (цикл повторяется каждые ~29.5 лет)."
             )
 
         try:
@@ -2056,6 +2134,28 @@ async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not active:
             await query.message.reply_text("Профиль не найден. Начни с /chart.")
             return
+
+        # Отправляем графическую карту Кундли D1
+        if active.get("chart_data"):
+            try:
+                b_dt = active.get("birth_dt")
+                dob_s = b_dt.strftime("%d.%m.%Y") if b_dt else None
+                tob_s = b_dt.strftime("%H:%M") if b_dt else None
+                chart_img = render_kundli_chart(
+                    chart_data=active["chart_data"],
+                    profile_name=active.get("profile_name"),
+                    dob_str=dob_s,
+                    tob_str=tob_s,
+                    place_str=active.get("place_name")
+                )
+                await query.message.reply_photo(
+                    photo=chart_img,
+                    caption=f"🔮 *Ведическая карта Кундли (D1): {active.get('profile_name', 'Профиль')}*",
+                    parse_mode="Markdown"
+                )
+            except Exception as img_err:
+                logger.warning(f"Не удалось отправить изображение карты: {img_err}")
+
         summary = active.get("summary")
         if not summary and active.get("chart_data"):
             try:
@@ -2102,6 +2202,37 @@ async def inline_nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.message.reply_text("🗑 Все твои астрологические профили полностью удалены из базы данных.")
 
     # Навигационные переходы
+    elif data == "nav_chart_img":
+        active = get_user_natal_profile(user_id, context)
+        if not active or not active.get("chart_data"):
+            await query.message.reply_text("Профиль не найден. Начни с /chart.")
+            return
+        status_msg = await query.message.reply_text("🎨 Рисую карту Кундли D1...")
+        try:
+            b_dt = active.get("birth_dt")
+            dob_s = b_dt.strftime("%d.%m.%Y") if b_dt else None
+            tob_s = b_dt.strftime("%H:%M") if b_dt else None
+            chart_img = render_kundli_chart(
+                chart_data=active["chart_data"],
+                profile_name=active.get("profile_name"),
+                dob_str=dob_s,
+                tob_str=tob_s,
+                place_str=active.get("place_name")
+            )
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await query.message.reply_photo(
+                photo=chart_img,
+                caption=f"🔮 *Ведическая карта Кундли (D1): {active.get('profile_name', 'Профиль')}*",
+                parse_mode="Markdown",
+                reply_markup=get_chart_inline_keyboard()
+            )
+        except Exception as e:
+            logger.exception("Ошибка отправки изображения карты")
+            await status_msg.edit_text(f"❌ Не удалось сгенерировать изображение карты: {e}")
+
     elif data == "nav_chart":
         profile = get_user_natal_profile(user_id, context)
         if profile:

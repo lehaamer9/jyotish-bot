@@ -8,3 +8,4 @@ pytz>=2024.1
 python-dotenv>=1.0.1
 skyfield>=1.48
 numpy>=1.26.0
+pillow>=10.0.0

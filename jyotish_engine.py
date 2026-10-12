@@ -222,20 +222,62 @@ TRIKONA_HOUSES = [1, 5, 9]
 DHANA_HOUSES = [2, 5, 9, 11]
 
 
+# Астрономическая таблица ингрессий транзитного Сатурна по сидерическим знакам (Лахири) 1975–2065
+SATURN_TRANSITS = [
+    ("1975-07-23", "Cancer"), ("1977-09-07", "Leo"), ("1979-11-04", "Virgo"),
+    ("1982-10-06", "Libra"), ("1984-12-21", "Scorpio"), ("1987-12-17", "Sagittarius"),
+    ("1990-03-21", "Capricorn"), ("1993-03-05", "Aquarius"), ("1995-06-02", "Pisces"),
+    ("1998-04-17", "Aries"), ("2000-06-06", "Taurus"), ("2002-07-23", "Gemini"),
+    ("2004-09-05", "Cancer"), ("2006-11-01", "Leo"), ("2009-09-09", "Virgo"),
+    ("2011-11-15", "Libra"), ("2014-11-02", "Scorpio"), ("2017-01-26", "Sagittarius"),
+    ("2020-01-24", "Capricorn"), ("2023-01-17", "Aquarius"), ("2025-03-29", "Pisces"),
+    ("2028-02-23", "Aries"), ("2030-04-17", "Taurus"), ("2032-05-30", "Gemini"),
+    ("2034-07-13", "Cancer"), ("2036-08-27", "Leo"), ("2038-10-22", "Virgo"),
+    ("2041-01-28", "Libra"), ("2043-12-12", "Scorpio"), ("2046-12-07", "Sagittarius"),
+    ("2049-03-06", "Capricorn"), ("2052-02-25", "Aquarius"), ("2054-05-14", "Pisces"),
+    ("2057-04-07", "Aries"), ("2059-05-27", "Taurus"), ("2061-07-11", "Gemini"),
+    ("2063-08-24", "Cancer"), ("2065-10-13", "Leo"),
+]
+
+
+def _format_date_ru(iso_str: Optional[str]) -> str:
+    """Форматирование даты YYYY-MM-DD в ДД.ММ.ГГГГ."""
+    if not iso_str:
+        return ""
+    try:
+        parts = iso_str.split("-")
+        return f"{parts[2]}.{parts[1]}.{parts[0]}"
+    except Exception:
+        return iso_str
+
+
 def check_sade_sati(chart_or_moon_sign) -> dict:
     """Проверить статус Саде-Сати (транзит Сатурна относительно натальной Луны).
 
     Принимает либо chart_data (dict), либо строку со знаком Луны (str).
-    Возвращает dict с полями: active, phase, phase_ru, saturn_sign, moon_sign, description.
+    Возвращает dict с полями: active, phase, phase_ru, saturn_sign, moon_sign,
+    current_cycle, next_cycle, prev_cycle, description.
     """
+    from datetime import date as _date
+
     if isinstance(chart_or_moon_sign, dict):
         natal_moon_sign = None
         for p in chart_or_moon_sign.get("planets", []):
             if p.get("name") == "Moon":
                 natal_moon_sign = p.get("sign")
                 break
+    elif isinstance(chart_or_moon_sign, int) and 1 <= chart_or_moon_sign <= 12:
+        natal_moon_sign = SIGNS_ORDER[chart_or_moon_sign - 1]
     else:
-        natal_moon_sign = str(chart_or_moon_sign)
+        raw_sign = str(chart_or_moon_sign).strip()
+        if raw_sign.isdigit() and 1 <= int(raw_sign) <= 12:
+            natal_moon_sign = SIGNS_ORDER[int(raw_sign) - 1]
+        else:
+            natal_moon_sign = raw_sign
+            for en_name, ru_name in SIGN_NAMES_RU.items():
+                if raw_sign.lower() in ru_name.lower() or raw_sign.lower() == en_name.lower():
+                    natal_moon_sign = en_name
+                    break
 
     if not natal_moon_sign or natal_moon_sign not in SIGNS_ORDER:
         return {
@@ -264,6 +306,10 @@ def check_sade_sati(chart_or_moon_sign) -> dict:
     # Расстояние по знакам (от Луны к Сатурну по часовой стрелке)
     distance = (saturn_idx - moon_idx) % 12
 
+    sign_12 = SIGNS_ORDER[(moon_idx - 1) % 12]  # 12-й знак от Луны (Фаза 1)
+    sign_1 = SIGNS_ORDER[moon_idx]              # Знак Луны (Фаза 2 / Пик)
+    sign_2 = SIGNS_ORDER[(moon_idx + 1) % 12]   # 2-й знак от Луны (Фаза 3)
+
     result = {
         "natal_moon_sign": natal_moon_sign,
         "natal_moon_sign_ru": SIGN_NAMES_RU.get(natal_moon_sign, natal_moon_sign),
@@ -273,27 +319,129 @@ def check_sade_sati(chart_or_moon_sign) -> dict:
         "transit_saturn_sign_ru": SIGN_NAMES_RU.get(transit_saturn_sign, transit_saturn_sign),
         "saturn_sign": transit_saturn_sign,
         "saturn_sign_ru": SIGN_NAMES_RU.get(transit_saturn_sign, transit_saturn_sign),
+        "sign_12_ru": SIGN_NAMES_RU.get(sign_12, sign_12),
+        "sign_1_ru": SIGN_NAMES_RU.get(sign_1, sign_1),
+        "sign_2_ru": SIGN_NAMES_RU.get(sign_2, sign_2),
+        "current_cycle": None,
+        "next_cycle": None,
+        "prev_cycle": None,
     }
 
-    if distance == 11:  # 12-й знак от Луны
-        result.update({"active": True, "phase": "rising",
-                       "phase_ru": "🌅 Нарастание (Rising)",
-                       "description": "Саде-Сати начинается. Сатурн в 12-м знаке от натальной Луны. "
-                                      "Период подготовки и внутренних трансформаций."})
-    elif distance == 0:  # Тот же знак = пик
-        result.update({"active": True, "phase": "peak",
-                       "phase_ru": "🔥 Пик (Peak)",
-                       "description": "Пик Саде-Сати. Сатурн проходит по знаку натальной Луны. "
-                                      "Самый интенсивный период кармических уроков."})
-    elif distance == 1:  # 2-й знак от Луны
-        result.update({"active": True, "phase": "setting",
-                       "phase_ru": "🌇 Спад (Setting)",
-                       "description": "Саде-Сати идёт на спад. Сатурн во 2-м знаке от натальной Луны. "
-                                      "Уроки усвоены, начало восстановления."})
+    # Поиск всех 7.5-летних циклов Саде-Сати для натальной Луны по астрономической таблице
+    all_cycles = []
+    for i in range(len(SATURN_TRANSITS) - 3):
+        if SATURN_TRANSITS[i][1] == sign_12:
+            p1_start = SATURN_TRANSITS[i][0]
+            p2_start = SATURN_TRANSITS[i + 1][0]
+            p3_start = SATURN_TRANSITS[i + 2][0]
+            end_dt = SATURN_TRANSITS[i + 3][0]
+            all_cycles.append({
+                "phase1_start": p1_start,
+                "phase2_start": p2_start,
+                "phase3_start": p3_start,
+                "end_date": end_dt,
+            })
+
+    today_str = _date.today().isoformat()
+
+    active_cycle = None
+    next_cycle = None
+    prev_cycle = None
+
+    for c in all_cycles:
+        if c["phase1_start"] <= today_str <= c["end_date"]:
+            active_cycle = c
+            break
+        elif c["end_date"] < today_str:
+            prev_cycle = c
+        elif c["phase1_start"] > today_str and next_cycle is None:
+            next_cycle = c
+
+    if active_cycle:
+        # Саде-Сати активен прямо сейчас
+        if distance == 11:
+            phase = "rising"
+            phase_ru = "🌅 Восходящая фаза (Сатурн в 12-м знаке от Луны)"
+            cur_phase_start = active_cycle["phase1_start"]
+            cur_phase_end = active_cycle["phase2_start"]
+        elif distance == 0:
+            phase = "peak"
+            phase_ru = "🔥 Пиковая фаза (Сатурн в знаке натальной Луны)"
+            cur_phase_start = active_cycle["phase2_start"]
+            cur_phase_end = active_cycle["phase3_start"]
+        else:
+            phase = "setting"
+            phase_ru = "🌇 Нисходящая фаза (Сатурн во 2-м знаке от Луны)"
+            cur_phase_start = active_cycle["phase3_start"]
+            cur_phase_end = active_cycle["end_date"]
+
+        cycle_info = {
+            "start_date": active_cycle["phase1_start"],
+            "start_date_ru": _format_date_ru(active_cycle["phase1_start"]),
+            "phase2_start_ru": _format_date_ru(active_cycle["phase2_start"]),
+            "phase3_start_ru": _format_date_ru(active_cycle["phase3_start"]),
+            "end_date": active_cycle["end_date"],
+            "end_date_ru": _format_date_ru(active_cycle["end_date"]),
+            "phase_start_ru": _format_date_ru(cur_phase_start),
+            "phase_end_ru": _format_date_ru(cur_phase_end),
+        }
+        result.update({
+            "active": True,
+            "phase": phase,
+            "phase_ru": phase_ru,
+            "current_cycle": cycle_info,
+            "description": (
+                f"Саде-Сати АКТИВЕН ({phase_ru}). "
+                f"Период текущей фазы: с {cycle_info['phase_start_ru']} по {cycle_info['phase_end_ru']}. "
+                f"Полное окончание Саде-Сати: {cycle_info['end_date_ru']}."
+            )
+        })
     else:
-        result.update({"active": False, "phase": None, "phase_ru": None,
-                       "description": "Саде-Сати сейчас НЕ активен. "
-                                      f"Сатурн в {distance + 1}-м знаке от натальной Луны."})
+        # Саде-Сати не активен
+        years_left = 1
+        next_info = None
+        if next_cycle:
+            try:
+                p1_year = int(next_cycle["phase1_start"][:4])
+                cur_year = _date.today().year
+                years_left = max(1, p1_year - cur_year)
+            except Exception:
+                years_left = 1
+
+            next_info = {
+                "start_date": next_cycle["phase1_start"],
+                "start_date_ru": _format_date_ru(next_cycle["phase1_start"]),
+                "phase1_start": next_cycle["phase1_start"],
+                "phase1_start_ru": _format_date_ru(next_cycle["phase1_start"]),
+                "phase2_start": next_cycle["phase2_start"],
+                "phase2_start_ru": _format_date_ru(next_cycle["phase2_start"]),
+                "phase3_start": next_cycle["phase3_start"],
+                "phase3_start_ru": _format_date_ru(next_cycle["phase3_start"]),
+                "end_date": next_cycle["end_date"],
+                "end_date_ru": _format_date_ru(next_cycle["end_date"]),
+                "years_left": years_left,
+            }
+
+        prev_info = None
+        if prev_cycle:
+            prev_info = {
+                "start_date": prev_cycle["phase1_start"],
+                "start_date_ru": _format_date_ru(prev_cycle["phase1_start"]),
+                "end_date": prev_cycle["end_date"],
+                "end_date_ru": _format_date_ru(prev_cycle["end_date"]),
+            }
+
+        result.update({
+            "active": False,
+            "phase": None,
+            "phase_ru": None,
+            "next_cycle": next_info,
+            "prev_cycle": prev_info,
+            "description": (
+                f"Саде-Сати сейчас НЕ активен. "
+                + (f"Следующий начнётся {next_info['phase1_start_ru']} (через ~{years_left} лет)." if next_info else "")
+            )
+        })
 
     return result
 
