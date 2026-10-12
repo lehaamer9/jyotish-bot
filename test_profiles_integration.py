@@ -369,6 +369,93 @@ class TestProfilesIntegration(unittest.TestCase):
         msg_partial.text = "15.05.1990"
         self.assertFalse(bot.one_line_filter.filter(msg_partial))
 
+    @unittest.mock.patch("bot.send_split_message")
+    @unittest.mock.patch("bot.format_chart_summary", return_value="Сводка карты")
+    @unittest.mock.patch("bot.resolve_location")
+    @unittest.mock.patch("bot.compute_chart")
+    def test_one_line_in_waiting_tob_and_waiting_place(self, mock_compute, mock_resolve, mock_summary, mock_split):
+        import asyncio
+        mock_resolve.return_value = (51.95, 85.96, 7.0, "Горно-Алтайск, Россия")
+        mock_compute.return_value = {"planets": [], "houses": [], "dashas": {"periods": []}}
+
+        # Тест 1: Пользователь находится в WAITING_TOB и отправляет полную строку
+        update_mock = MagicMock()
+        update_mock.effective_user.id = self.user_id
+        update_mock.message.text = "Александр, 20.06.1996, 08:25, Горно-Алтайск"
+        status_msg = AsyncMock()
+        update_mock.effective_message.reply_text = AsyncMock(return_value=status_msg)
+        context_mock = MagicMock()
+        context_mock.user_data = {"temp_dob": datetime(1996, 6, 20).date()}
+
+        state = asyncio.run(bot.chart_tob_received(update_mock, context_mock))
+        self.assertEqual(state, bot.ConversationHandler.END)
+
+        active = get_active_profile(self.user_id, db_path=self.db_path)
+        self.assertIsNotNone(active)
+        self.assertEqual(active["profile_name"], "Александр")
+
+        # Тест 2: Пользователь находится в WAITING_PLACE и отправляет полную строку
+        update_mock.message.text = "Мария, 15.05.1990, 10:30, Москва"
+        context_mock.user_data = {
+            "temp_dob": datetime(1990, 5, 15).date(),
+            "temp_tob": datetime(1990, 5, 15, 10, 30).time()
+        }
+        state = asyncio.run(bot.chart_place_received(update_mock, context_mock))
+        self.assertEqual(state, bot.ConversationHandler.END)
+
+        active2 = get_active_profile(self.user_id, db_path=self.db_path)
+        self.assertEqual(active2["profile_name"], "Мария")
+
+    def test_name_first_in_chart_dob_received(self):
+        import asyncio
+        update_mock = MagicMock()
+        update_mock.effective_user.id = self.user_id
+        update_mock.message.text = "Александр"
+        update_mock.message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {}
+
+        state = asyncio.run(bot.chart_dob_received(update_mock, context_mock))
+        self.assertEqual(state, bot.WAITING_DOB)
+        self.assertEqual(context_mock.user_data.get("temp_profile_name"), "Александр")
+        self.assertTrue(update_mock.message.reply_text.called)
+        reply_text = update_mock.message.reply_text.call_args[0][0]
+        self.assertIn("Запомнил имя", reply_text)
+
+    def test_rename_command_flow(self):
+        import asyncio
+        # Сохраняем тестовый профиль
+        save_profile(
+            user_id=self.user_id,
+            profile_name="Старое имя",
+            birth_dt=datetime(1996, 6, 20, 8, 25),
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={},
+            summary="",
+            set_as_active=True,
+            db_path=self.db_path
+        )
+
+        update_mock = MagicMock()
+        update_mock.effective_user.id = self.user_id
+        update_mock.message.text = "/rename Новое Имя"
+        update_mock.effective_message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {}
+
+        asyncio.run(bot.rename_command(update_mock, context_mock))
+        self.assertTrue(update_mock.effective_message.reply_text.called)
+        reply_text = update_mock.effective_message.reply_text.call_args[0][0]
+        self.assertIn("Новое Имя", reply_text)
+
+        # Проверяем в БД
+        active = get_active_profile(self.user_id, db_path=self.db_path)
+        self.assertEqual(active["profile_name"], "Новое Имя")
+
 
 if __name__ == "__main__":
     unittest.main()

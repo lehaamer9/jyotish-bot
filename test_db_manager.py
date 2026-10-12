@@ -349,6 +349,69 @@ class TestDBManager(unittest.TestCase):
         self.assertEqual(prof["place_name"], "Горно-Алтайск")
         self.assertEqual(prof["lat"], 51.95)
 
+    def test_restore_backup_merges_new_profile_into_non_empty_db(self):
+        # 1. В БД уже есть профиль 1
+        save_profile(
+            user_id=111,
+            profile_name="Профиль 1",
+            birth_dt=datetime(1990, 1, 1, 10, 0),
+            place_name="Москва",
+            resolved_address="Москва",
+            lat=55.75,
+            lon=37.61,
+            tz_offset=3.0,
+            chart_data={},
+            summary="",
+            db_path=self.db_path
+        )
+        self.assertEqual(count_user_profiles(111, db_path=self.db_path), 1)
+
+        # 2. В JSON-бэкапе есть профиль 1 и дополнительно новый профиль 2
+        import json
+        json_file = os.path.join(self.temp_dir.name, "merge_backup.json")
+        backup_data = [
+            {
+                "id": 1,
+                "user_id": 111,
+                "profile_name": "Профиль 1",
+                "birth_dt": "1990-01-01T10:00:00",
+                "place_name": "Москва",
+                "lat": 55.75,
+                "lon": 37.61,
+                "tz_offset": 3.0,
+                "chart_data": "{}",
+                "summary": "",
+                "is_active": 1
+            },
+            {
+                "id": 2,
+                "user_id": 222,
+                "profile_name": "Новый из JSON",
+                "birth_dt": "1995-05-05T12:00:00",
+                "place_name": "Рим",
+                "lat": 41.9,
+                "lon": 12.5,
+                "tz_offset": 2.0,
+                "chart_data": "{}",
+                "summary": "",
+                "is_active": 1
+            }
+        ]
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump(backup_data, f)
+
+        # 3. Восстанавливаем в непустую БД
+        restored = restore_backup_to_db(db_path=self.db_path, json_path=json_file)
+        self.assertEqual(restored, 1)
+
+        # 4. Проверяем, что теперь в БД есть оба профиля и профиль 1 не затронут
+        p1 = get_active_profile(111, db_path=self.db_path)
+        p2 = get_active_profile(222, db_path=self.db_path)
+        self.assertIsNotNone(p1)
+        self.assertEqual(p1["profile_name"], "Профиль 1")
+        self.assertIsNotNone(p2)
+        self.assertEqual(p2["profile_name"], "Новый из JSON")
+
 
 if __name__ == "__main__":
     import db_manager

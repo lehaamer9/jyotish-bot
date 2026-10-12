@@ -83,7 +83,7 @@ def parse_one_line_profile(raw_text: str) -> Optional[Dict[str, Any]]:
 
         # Очистка вводных предлогов из промежуточной части
         part_middle = re.sub(r'^(?:в|родился\s+в|родилась\s+в)\s*', '', part_middle, flags=re.IGNORECASE).strip(" ,;:\t\n-")
-        part_after = re.sub(r'^(?:в\s+г\.|в\s+город|в\s+|г\.\s*|город\s+)', '', part_after, flags=re.IGNORECASE).strip(" ,;:\t\n-")
+        part_after = re.sub(r'^(?:в\s+)?(?:г\.|г(?:ород[еау]?)\b)?\s*', '', part_after, flags=re.IGNORECASE).strip(" ,;:\t\n-")
 
         if part_before and part_after:
             name = part_before
@@ -95,14 +95,40 @@ def parse_one_line_profile(raw_text: str) -> Optional[Dict[str, Any]]:
             name = part_before
             city = part_middle
         elif not part_before and not part_middle and part_after:
-            # Случай: «15.05.1990 10:30 Москва, Александр» или «15.05.1990 10:30 Москва»
-            if "," in part_after:
+            # Сначала проверяем явное указание имени в конце (в скобках или с префиксом)
+            paren_match = re.search(r'\((?:имя\s*[:=-]?\s*)?([^)]+)\)\s*$', part_after, flags=re.IGNORECASE)
+            name_kw_match = re.search(r'[,;]?\s*(?:имя|профиль|зов[уе]т)\s*[:=-]?\s*([A-Za-zА-Яа-яЁё\s]+)$', part_after, flags=re.IGNORECASE)
+
+            if paren_match:
+                name = paren_match.group(1).strip()
+                city = part_after[:paren_match.start()].strip(" ,;:\t\n-")
+            elif name_kw_match:
+                name = name_kw_match.group(1).strip()
+                city = part_after[:name_kw_match.start()].strip(" ,;:\t\n-")
+            elif "," in part_after:
                 parts = [p.strip() for p in part_after.split(",") if p.strip()]
-                if len(parts) >= 2:
+                # Проверяем, не является ли вторая часть страной или регионом (например «Рим, Италия», «Горно-Алтайск, Россия»)
+                country_region_keywords = {
+                    "россия", "рф", "италия", "украина", "беларусь", "казахстан", "сша", "германия",
+                    "франция", "испания", "турция", "индия", "таиланд", "китай", "грузия", "армения",
+                    "азербайджан", "узбекистан", "кыргызстан", "таджикистан", "оаэ", "египет", "греция",
+                    "кипр", "польша", "израиль", "канада", "великобритания", "англия",
+                    "область", "обл", "край", "район", "республика", "респ", "округ", "штат",
+                    "russia", "italy", "usa", "uk", "germany", "france", "spain", "turkey", "india",
+                    "thailand", "china", "georgia", "armenia", "uae", "egypt", "greece", "cyprus",
+                    "poland", "israel", "canada", "state", "region", "province"
+                }
+                last_part = parts[-1].lower()
+                last_part_words = set(re.findall(r'[a-za-яё]+', last_part))
+                is_geo = bool(last_part_words & country_region_keywords)
+
+                if not is_geo and len(parts) == 2 and len(parts[1].split()) <= 2:
+                    # «15.05.1990 10:30 Москва, Александр» -> city='Москва', name='Александр'
                     city = parts[0]
                     name = parts[1]
                 else:
-                    city = parts[0]
+                    # «15.05.1990 10:30 Горно-Алтайск, Россия» -> city='Горно-Алтайск, Россия', name=None
+                    city = part_after
             else:
                 city = part_after
     else:
@@ -123,7 +149,7 @@ def parse_one_line_profile(raw_text: str) -> Optional[Dict[str, Any]]:
 
     # Очистка города
     if city:
-        city = re.sub(r'^(?:в\s+г\.|в\s+город|в\s+|г\.\s*|город\s+)', '', city, flags=re.IGNORECASE).strip(" ,;:\t\n-")
+        city = re.sub(r'^(?:в\s+)?(?:г\.|г(?:ород[еау]?)\b)?\s*', '', city, flags=re.IGNORECASE).strip(" ,;:\t\n-")
         if not city:
             city = None
 

@@ -79,35 +79,39 @@ def restore_backup_to_db(db_path: Optional[str] = None, json_path: Optional[str]
             return 0
         restored = 0
         with get_db(path) as conn:
-            cur = conn.execute("SELECT COUNT(*) FROM profiles;")
-            count = cur.fetchone()[0]
-            if count == 0:
-                for item in data:
-                    chart_str = item.get("chart_data")
-                    if isinstance(chart_str, dict):
-                        chart_str = json.dumps(chart_str, ensure_ascii=False)
-                    conn.execute("""
-                        INSERT INTO profiles (
-                            id, user_id, profile_name, birth_dt, place_name, resolved_address,
-                            lat, lon, tz_offset, chart_data, summary, is_active, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                    """, (
-                        item.get("id"),
-                        item["user_id"],
-                        item["profile_name"],
-                        str(item["birth_dt"]),
-                        item["place_name"],
-                        item.get("resolved_address", ""),
-                        float(item["lat"]),
-                        float(item["lon"]),
-                        float(item["tz_offset"]),
-                        chart_str,
-                        item.get("summary", ""),
-                        int(item.get("is_active", 1)),
-                        item.get("created_at", datetime.now(timezone.utc).isoformat()),
-                        item.get("updated_at", datetime.now(timezone.utc).isoformat())
-                    ))
-                    restored += 1
+            cur = conn.execute("SELECT id FROM profiles;")
+            existing_ids = {row["id"] for row in cur.fetchall()}
+            for item in data:
+                item_id = item.get("id")
+                if item_id is not None and item_id in existing_ids:
+                    continue
+
+                chart_str = item.get("chart_data")
+                if isinstance(chart_str, dict):
+                    chart_str = json.dumps(chart_str, ensure_ascii=False)
+                conn.execute("""
+                    INSERT INTO profiles (
+                        id, user_id, profile_name, birth_dt, place_name, resolved_address,
+                        lat, lon, tz_offset, chart_data, summary, is_active, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, (
+                    item_id,
+                    item["user_id"],
+                    item["profile_name"],
+                    str(item["birth_dt"]),
+                    item["place_name"],
+                    item.get("resolved_address", ""),
+                    float(item["lat"]),
+                    float(item["lon"]),
+                    float(item["tz_offset"]),
+                    chart_str,
+                    item.get("summary", ""),
+                    int(item.get("is_active", 1)),
+                    item.get("created_at", datetime.now(timezone.utc).isoformat()),
+                    item.get("updated_at", datetime.now(timezone.utc).isoformat())
+                ))
+                restored += 1
+            if restored > 0:
                 conn.commit()
                 logger.info(f"Восстановлено {restored} профилей из {json_path} в базу {path}")
         return restored

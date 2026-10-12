@@ -78,6 +78,7 @@ from db_manager import (
     get_profile_by_id,
     set_active_profile,
     delete_profile,
+    rename_profile,
     clear_user_profiles,
     count_user_profiles,
 )
@@ -569,6 +570,54 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
+async def rename_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Переименовать активный астрологический профиль."""
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
+    profile = get_user_natal_profile(user_id, context)
+    if not profile:
+        await update.effective_message.reply_text(
+            "У тебя пока нет сохранённого профиля. Нажми /chart, чтобы создать его!",
+            reply_markup=get_main_reply_keyboard()
+        )
+        return
+
+    text = update.message.text.strip() if update.message and update.message.text else ""
+    args = re.sub(r"^/rename\b\s*", "", text, flags=re.IGNORECASE).strip()
+    if not args:
+        await update.effective_message.reply_text(
+            f"Текущее имя активного профиля: *«{profile['profile_name']}»*.\n\n"
+            "Чтобы переименовать его, укажи новое имя:\n"
+            "👉 `/rename Александр`",
+            parse_mode="Markdown"
+        )
+        return
+
+    if len(args) > 50:
+        await update.effective_message.reply_text("Имя профиля не должно превышать 50 символов.")
+        return
+
+    if rename_profile(profile["id"], user_id, args):
+        updated = get_profile_by_id(profile["id"], user_id)
+        if context is not None and context.user_data is not None:
+            context.user_data["natal_profile"] = updated
+        await update.effective_message.reply_text(
+            f"✅ Профиль успешно переименован в *«{args}»*!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("📜 Показать карту", callback_data="prof_view_active"),
+                    InlineKeyboardButton("👤 Все профили", callback_data="prof_menu"),
+                ]
+            ])
+        )
+    else:
+        await update.effective_message.reply_text("Не удалось переименовать профиль. Попробуй позже.")
+
+
 # ===================== ДИАЛОГ СОСТАВЛЕНИЯ КАРТЫ =====================
 
 async def process_and_save_chart(
@@ -963,6 +1012,17 @@ async def chart_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
         dob = datetime.strptime(text, "%d.%m.%Y").date()
         context.user_data["temp_dob"] = dob
     except ValueError:
+        # Если пользователь ввёл только имя (буквы, дефис, пробел, 2-50 символов без цифр)
+        if re.match(r'^[A-Za-zА-Яа-яЁё\s\-]{2,50}$', text) and not any(ch.isdigit() for ch in text):
+            context.user_data["temp_profile_name"] = text
+            await update.message.reply_text(
+                f"👤 Запомнил имя: *{text}*!\n\n"
+                "Теперь введи дату рождения (`ДД.ММ.ГГГГ`), например: `20.06.1996`\n"
+                "или отправь остальные данные одной строкой (`ДД.ММ.ГГГГ, ЧЧ:ММ, Город`):",
+                parse_mode="Markdown"
+            )
+            return WAITING_DOB
+
         await update.message.reply_text(
             "⚠️ Неверный формат даты.\n\n"
             "Введи данные одной строкой:\n"
@@ -983,20 +1043,42 @@ async def chart_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def chart_tob_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение времени рождения."""
+    """Получение времени рождения или полной строки данных."""
     text = update.message.text.strip()
     if text.lower() in ("отмена", "❌ отмена", "/cancel"):
         return await cancel_command(update, context)
+
+    # Проверяем, не ввёл ли пользователь полную строку данных
+    parsed = parse_one_line_profile(text)
+    if parsed and parsed.get("is_complete"):
+        name = parsed.get("name") or context.user_data.get("temp_profile_name")
+        editing_id = context.user_data.get("editing_profile_id")
+        return await process_and_save_chart(
+            update=update,
+            context=context,
+            profile_name=name,
+            dob=parsed["dob"],
+            tob=parsed["tob"],
+            place_input=parsed["city"],
+            editing_id=editing_id
+        )
 
     try:
         tob = datetime.strptime(text, "%H:%M").time()
         context.user_data["temp_tob"] = tob
     except ValueError:
-        await update.message.reply_text(
-            "⚠️ Неверный формат времени. Пожалуйста, укажи в виде `ЧЧ:ММ` (например: `10:30`):",
-            parse_mode="Markdown"
-        )
-        return WAITING_TOB
+        if parsed and parsed.get("tob"):
+            context.user_data["temp_tob"] = parsed["tob"]
+        else:
+            time_match = re.search(r'\b([01]?\d|2[0-3])[:.]([0-5]\d)\b', text)
+            if time_match:
+                context.user_data["temp_tob"] = time(int(time_match.group(1)), int(time_match.group(2)))
+            else:
+                await update.message.reply_text(
+                    "⚠️ Неверный формат времени. Пожалуйста, укажи в виде `ЧЧ:ММ` (например: `10:30`):",
+                    parse_mode="Markdown"
+                )
+                return WAITING_TOB
 
     await update.message.reply_text(
         "📍 *Шаг 3 из 3:* Введи город рождения\n"
@@ -1011,6 +1093,22 @@ async def chart_place_received(update: Update, context: ContextTypes.DEFAULT_TYP
     place_input = update.message.text.strip()
     if place_input.lower() in ("отмена", "❌ отмена", "/cancel"):
         return await cancel_command(update, context)
+
+    # Проверяем, не ввёл ли пользователь полную строку данных
+    parsed = parse_one_line_profile(place_input)
+    if parsed and parsed.get("is_complete"):
+        name = parsed.get("name") or context.user_data.get("temp_profile_name")
+        editing_id = context.user_data.get("editing_profile_id")
+        return await process_and_save_chart(
+            update=update,
+            context=context,
+            profile_name=name,
+            dob=parsed["dob"],
+            tob=parsed["tob"],
+            place_input=parsed["city"],
+            editing_id=editing_id
+        )
+
     dob = context.user_data.get("temp_dob")
     tob = context.user_data.get("temp_tob")
 
@@ -1099,7 +1197,11 @@ async def dasha_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def compat_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало проверки совместимости."""
-    user_id = update.effective_user.id
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
     my_profile = get_user_natal_profile(user_id, context)
     if not my_profile:
         await update.effective_message.reply_text(
@@ -1415,7 +1517,10 @@ async def sadesati_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "через 12-й, 1-й и 2-й знаки от натальной Луны (~7.5 лет)."
             )
 
-        await status_msg.delete()
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
         await update.effective_message.reply_text(
             text,
             parse_mode="Markdown",
@@ -1540,7 +1645,11 @@ async def yoga_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало диалога экспресс-вопроса ИИ-астрологу."""
-    user_id = update.effective_user.id
+    user_id = (
+        update.effective_user.id
+        if update.effective_user
+        else (update.callback_query.from_user.id if update.callback_query else 0)
+    )
     profile = get_user_natal_profile(user_id, context)
     if not profile:
         await update.effective_message.reply_text(
@@ -1991,6 +2100,7 @@ async def post_init(application: Application) -> None:
     commands = [
         BotCommand("chart", "🔮 Составить натальную карту"),
         BotCommand("profile", "👤 Управление профилями"),
+        BotCommand("rename", "✏️ Переименовать профиль"),
         BotCommand("newprofile", "➕ Добавить новый профиль"),
         BotCommand("dasha", "⏳ Периоды жизни (Даша)"),
         BotCommand("sadesati", "🪐 Калькулятор Саде-Сати"),
@@ -2137,6 +2247,7 @@ def main():
     app.add_handler(CommandHandler("prices", prices_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("profiles", profile_command))
+    app.add_handler(CommandHandler("rename", rename_command))
     app.add_handler(CommandHandler("mydata", mydata_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("dasha", dasha_command))

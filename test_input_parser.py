@@ -109,6 +109,44 @@ class TestInputParser(unittest.TestCase):
         self.assertIsNone(res["city"])
         self.assertFalse(res["is_complete"])
 
+    def test_country_region_not_mistaken_for_name(self):
+        res1 = parse_one_line_profile("20.06.1996 08:25 Горно-Алтайск, Россия")
+        self.assertIsNotNone(res1)
+        self.assertIsNone(res1["name"])
+        self.assertEqual(res1["city"], "Горно-Алтайск, Россия")
+
+        res2 = parse_one_line_profile("20.06.1996 08:25 Рим, Италия")
+        self.assertIsNotNone(res2)
+        self.assertIsNone(res2["name"])
+        self.assertEqual(res2["city"], "Рим, Италия")
+
+        res3 = parse_one_line_profile("20.06.1996 08:25 Санкт-Петербург, Ленинградская область")
+        self.assertIsNotNone(res3)
+        self.assertIsNone(res3["name"])
+        self.assertEqual(res3["city"], "Санкт-Петербург, Ленинградская область")
+
+    def test_city_prefix_variations(self):
+        res1 = parse_one_line_profile("Александр, 20.06.1996 в 08:25 в городе Горно-Алтайск")
+        self.assertIsNotNone(res1)
+        self.assertEqual(res1["name"], "Александр")
+        self.assertEqual(res1["city"], "Горно-Алтайск")
+
+        res2 = parse_one_line_profile("Александр 20.06.1996 08:25 в г. Горно-Алтайск")
+        self.assertIsNotNone(res2)
+        self.assertEqual(res2["name"], "Александр")
+        self.assertEqual(res2["city"], "Горно-Алтайск")
+
+    def test_name_in_parentheses_or_keyword_at_end(self):
+        res1 = parse_one_line_profile("20.06.1996 08:25 Горно-Алтайск (Александр)")
+        self.assertIsNotNone(res1)
+        self.assertEqual(res1["name"], "Александр")
+        self.assertEqual(res1["city"], "Горно-Алтайск")
+
+        res2 = parse_one_line_profile("20.06.1996 08:25 Москва, имя: Александр")
+        self.assertIsNotNone(res2)
+        self.assertEqual(res2["name"], "Александр")
+        self.assertEqual(res2["city"], "Москва")
+
     def test_invalid_strings(self):
         self.assertIsNone(parse_one_line_profile(""))
         self.assertIsNone(parse_one_line_profile("Привет, как дела?"))
