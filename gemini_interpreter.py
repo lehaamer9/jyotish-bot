@@ -158,13 +158,14 @@ WEALTH_INTERPRETATION_PROMPT = """Ты — ведический астролог
 
 # Актуальные модели (октябрь 2026): gemini-3.8-flash — флагман, gemini-2.5-flash — стабильный legacy
 CANDIDATE_MODELS = [
-    "gemini-3.8-flash",
-    "gemini-2.5-flash",
+    "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3-flash-preview",
 ]
 
 # Таймаут на один запрос к Gemini (секунды)
-_REQUEST_TIMEOUT = 10
+_REQUEST_TIMEOUT = 25
 
 
 class GeminiInterpreter:
