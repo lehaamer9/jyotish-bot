@@ -49,6 +49,21 @@ PLANET_COLORS: Dict[str, str] = {
 }
 
 
+SIGN_NAMES_BY_LANG: Dict[str, Dict[str, str]] = {
+    'ru': SIGN_NAMES_RU,
+    'en': {
+        'Aries': 'Aries', 'Taurus': 'Taurus', 'Gemini': 'Gemini', 'Cancer': 'Cancer',
+        'Leo': 'Leo', 'Virgo': 'Virgo', 'Libra': 'Libra', 'Scorpio': 'Scorpio',
+        'Sagittarius': 'Sagittarius', 'Capricorn': 'Capricorn', 'Aquarius': 'Aquarius', 'Pisces': 'Pisces'
+    },
+    'it': {
+        'Aries': 'Ariete', 'Taurus': 'Toro', 'Gemini': 'Gemelli', 'Cancer': 'Cancro',
+        'Leo': 'Leone', 'Virgo': 'Vergine', 'Libra': 'Bilancia', 'Scorpio': 'Scorpione',
+        'Sagittarius': 'Sagittario', 'Capricorn': 'Capricorno', 'Aquarius': 'Acquario', 'Pisces': 'Pesci'
+    }
+}
+
+
 def _get_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     """Кроссплатформенная загрузка шрифта с безопасным fallback."""
     font_names = [
@@ -74,11 +89,16 @@ def render_kundli_chart(
     dob_str: Optional[str] = None,
     tob_str: Optional[str] = None,
     place_str: Optional[str] = None,
+    lang: str = "ru",
 ) -> io.BytesIO:
     """
     Генерирует высококачественное PNG-изображение Северо-индийской натальной карты (D1).
     Возвращает BytesIO с бинарными данными PNG.
     """
+    lang = lang.lower() if lang else "ru"
+    if lang not in ("ru", "en", "it"):
+        lang = "ru"
+
     # Размеры холста
     CANVAS_W, CANVAS_H = 800, 860
     img = Image.new("RGB", (CANVAS_W, CANVAS_H), color="#0B132B")  # Глубокий сапфировый/космический фон
@@ -92,7 +112,12 @@ def render_kundli_chart(
     font_footer = _get_font(11, bold=False)
 
     # 1. Заголовок карты
-    title_text = "ВЕДИЧЕСКАЯ КАРТА КУНДЛИ (РАШИ D1)"
+    title_texts = {
+        "ru": "ВЕДИЧЕСКАЯ КАРТА КУНДЛИ (РАШИ D1)",
+        "en": "VEDIC KUNDLI CHART (RASHI D1)",
+        "it": "CARTA VEDICA KUNDLI (RASHI D1)",
+    }
+    title_text = title_texts.get(lang, title_texts["ru"])
     draw.text((CANVAS_W // 2, 22), title_text, fill="#F59E0B", font=font_title, anchor="mt")
 
     # Сведения о рождении
@@ -106,7 +131,12 @@ def render_kundli_chart(
     if place_str:
         meta_parts.append(str(place_str))
 
-    meta_line = " • ".join(meta_parts) if meta_parts else "Натальная карта"
+    fallback_metas = {
+        "ru": "Натальная карта",
+        "en": "Natal Chart",
+        "it": "Tema Natale",
+    }
+    meta_line = " • ".join(meta_parts) if meta_parts else fallback_metas.get(lang, "Натальная карта")
     draw.text((CANVAS_W // 2, 48), meta_line, fill="#94A3B8", font=font_sub, anchor="mt")
 
     # Определение знака Лагны
@@ -117,9 +147,16 @@ def render_kundli_chart(
         lagna_sign = houses[0].get("sign")
         lagna_deg = houses[0].get("degrees")
 
-    lagna_ru = SIGN_NAMES_RU.get(lagna_sign, lagna_sign or "Неизвестно")
+    sign_map = SIGN_NAMES_BY_LANG.get(lang, SIGN_NAMES_RU)
+    lagna_localized = sign_map.get(lagna_sign, lagna_sign or ("Неизвестно" if lang == "ru" else "Unknown"))
     lagna_deg_str = f"{lagna_deg:.1f}°" if lagna_deg is not None else ""
-    lagna_text = f"Лагна (Асцендент): {lagna_ru} {lagna_deg_str}".strip()
+    asc_labels = {
+        "ru": "Лагна (Асцендент)",
+        "en": "Lagna (Ascendant)",
+        "it": "Lagna (Ascendente)",
+    }
+    asc_prefix = asc_labels.get(lang, asc_labels["ru"])
+    lagna_text = f"{asc_prefix}: {lagna_localized} {lagna_deg_str}".strip()
     draw.text((CANVAS_W // 2, 68), lagna_text, fill="#38BDF8", font=font_lagna, anchor="mt")
 
     # 2. Геометрия Северо-индийской карты (Diamond chart)
@@ -237,7 +274,12 @@ def render_kundli_chart(
             draw.text((cx, py), label, fill=color, font=font_planet, anchor="mm")
 
     # 5. Нижний колонтитул
-    footer_text = "NASA JPL DE421 Ephemeris • Аянамша Читра-Пакша (Лахири) • ИИ-Джьотиш"
+    footer_texts = {
+        "ru": "NASA JPL DE421 Ephemeris • Аянамша Читра-Пакша (Лахири) • ИИ-Джьотиш",
+        "en": "NASA JPL DE421 Ephemeris • Lahiri Ayanamsha (Chitra Paksha) • AI Jyotishi",
+        "it": "NASA JPL DE421 Ephemeris • Ayanamsha Lahiri (Chitra Paksha) • Astrologo IA",
+    }
+    footer_text = footer_texts.get(lang, footer_texts["ru"])
     draw.text((CANVAS_W // 2, 825), footer_text, fill="#64748B", font=font_footer, anchor="mt")
 
     # Сохранение в BytesIO

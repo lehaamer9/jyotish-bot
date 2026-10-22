@@ -21,6 +21,9 @@ from db_manager import (
     count_user_profiles,
     export_db_to_backup,
     restore_backup_to_db,
+    update_profile_data,
+    cleanup_duplicate_profiles,
+    get_profile_by_name_or_index,
 )
 
 
@@ -444,6 +447,228 @@ class TestDBManager(unittest.TestCase):
         self.assertEqual(stats["total_users"], 2)
         self.assertEqual(stats["total_profiles"], 2)
         self.assertEqual(len(stats["recent_profiles"]), 2)
+
+    def test_update_profile_data_success_and_missing_id(self):
+        # 1. Создаем профиль
+        orig_dt = datetime(1995, 6, 20, 8, 30)
+        prof_id = save_profile(
+            user_id=self.user_id,
+            profile_name="Александр",
+            birth_dt=orig_dt,
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск, Россия",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={"asc": "Cancer"},
+            summary="Старая сводка",
+            set_as_active=True,
+            db_path=self.db_path,
+        )
+
+        # 2. Обновляем данные профиля через update_profile_data
+        new_dt = datetime(1996, 6, 20, 8, 25)
+        ok = update_profile_data(
+            profile_id=prof_id,
+            user_id=self.user_id,
+            birth_dt=new_dt,
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск, Россия",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={"asc": "Leo"},
+            summary="Новая сводка",
+            set_as_active=True,
+            db_path=self.db_path,
+        )
+        self.assertTrue(ok)
+
+        # Проверяем, что данные обновились, а количество профилей осталось 1
+        updated = get_profile_by_id(prof_id, self.user_id, db_path=self.db_path)
+        self.assertEqual(updated["birth_dt"], new_dt)
+        self.assertEqual(updated["summary"], "Новая сводка")
+        self.assertEqual(count_user_profiles(self.user_id, db_path=self.db_path), 1)
+
+        # 3. Попытка обновить несуществующий профиль возвращает False
+        fail = update_profile_data(
+            profile_id=999999,
+            user_id=self.user_id,
+            birth_dt=new_dt,
+            place_name="Рим",
+            resolved_address="Рим",
+            lat=41.9,
+            lon=12.5,
+            tz_offset=2.0,
+            chart_data={},
+            summary="",
+            db_path=self.db_path,
+        )
+        self.assertFalse(fail)
+
+    def test_cleanup_duplicate_profiles(self):
+        # Создаем 3 профиля, из них 2 дубликата с именем "Мой гороскоп"
+        id1 = save_profile(
+            user_id=self.user_id,
+            profile_name="Мой гороскоп",
+            birth_dt=datetime(1990, 1, 1, 10, 0),
+            place_name="Москва",
+            resolved_address="Москва",
+            lat=55.75,
+            lon=37.61,
+            tz_offset=3.0,
+            chart_data={},
+            summary="Старый ошибочный",
+            set_as_active=False,
+            db_path=self.db_path,
+        )
+        id2 = save_profile(
+            user_id=self.user_id,
+            profile_name="Мой гороскоп",
+            birth_dt=datetime(1990, 1, 1, 12, 0),
+            place_name="Москва",
+            resolved_address="Москва",
+            lat=55.75,
+            lon=37.61,
+            tz_offset=3.0,
+            chart_data={},
+            summary="Новый исправленный",
+            set_as_active=True,
+            db_path=self.db_path,
+        )
+        id3 = save_profile(
+            user_id=self.user_id,
+            profile_name="Партнёр",
+            birth_dt=datetime(1992, 5, 5, 15, 0),
+            place_name="Рим",
+            resolved_address="Рим",
+            lat=41.9,
+            lon=12.5,
+            tz_offset=2.0,
+            chart_data={},
+            summary="Партнёр",
+            set_as_active=False,
+            db_path=self.db_path,
+        )
+
+        self.assertEqual(count_user_profiles(self.user_id, db_path=self.db_path), 3)
+
+        # Запускаем очистку дубликатов
+        deleted = cleanup_duplicate_profiles(self.user_id, db_path=self.db_path)
+        self.assertEqual(deleted, 1)
+        self.assertEqual(count_user_profiles(self.user_id, db_path=self.db_path), 2)
+
+        # Активный (id2) остался, старый дубликат (id1) удален
+        remaining_ids = {p["id"] for p in get_user_profiles(self.user_id, db_path=self.db_path)}
+        self.assertIn(id2, remaining_ids)
+        self.assertIn(id3, remaining_ids)
+        self.assertNotIn(id1, remaining_ids)
+
+    def test_get_profile_by_name_or_index(self):
+        id1 = save_profile(
+            user_id=self.user_id,
+            profile_name="Александр",
+            birth_dt=datetime(1996, 6, 20, 8, 25),
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={},
+            summary="",
+            set_as_active=False,
+            db_path=self.db_path,
+        )
+        id2 = save_profile(
+            user_id=self.user_id,
+            profile_name="Сюзанна",
+            birth_dt=datetime(1998, 8, 28, 11, 0),
+            place_name="Рим",
+            resolved_address="Рим",
+            lat=41.9,
+            lon=12.5,
+            tz_offset=2.0,
+            chart_data={},
+            summary="",
+            set_as_active=True,
+            db_path=self.db_path,
+        )
+
+        # Поиск по 1-based индексу
+        p1 = get_profile_by_name_or_index(self.user_id, "1", db_path=self.db_path)
+        self.assertIsNotNone(p1)
+        self.assertEqual(p1["id"], id2)  # Активный профиль идет первым в get_user_profiles
+
+        p2 = get_profile_by_name_or_index(self.user_id, "2", db_path=self.db_path)
+        self.assertIsNotNone(p2)
+        self.assertEqual(p2["id"], id1)
+
+        # Несуществующий индекс
+        self.assertIsNone(get_profile_by_name_or_index(self.user_id, "99", db_path=self.db_path))
+
+        # Поиск по имени
+        p_name1 = get_profile_by_name_or_index(self.user_id, "александр", db_path=self.db_path)
+        self.assertIsNotNone(p_name1)
+        self.assertEqual(p_name1["id"], id1)
+
+        p_name2 = get_profile_by_name_or_index(self.user_id, "СЮЗАННА", db_path=self.db_path)
+        self.assertIsNotNone(p_name2)
+        self.assertEqual(p_name2["id"], id2)
+
+    def test_cleanup_duplicate_profiles_with_numbered_and_identical_data(self):
+        # Создаем именованный активный профиль и паразитный "Профиль 2"
+        id_main = save_profile(
+            user_id=self.user_id,
+            profile_name="Мой гороскоп",
+            birth_dt=datetime(1996, 6, 20, 8, 25),
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={},
+            summary="",
+            set_as_active=True,
+            db_path=self.db_path,
+        )
+        id_dup_numbered = save_profile(
+            user_id=self.user_id,
+            profile_name="Профиль 2",
+            birth_dt=datetime(1996, 6, 20, 8, 25),
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={},
+            summary="",
+            set_as_active=False,
+            db_path=self.db_path,
+        )
+        id_dup_same_data = save_profile(
+            user_id=self.user_id,
+            profile_name="Дубликат данных",
+            birth_dt=datetime(1996, 6, 20, 8, 25),
+            place_name="Горно-Алтайск",
+            resolved_address="Горно-Алтайск",
+            lat=51.95,
+            lon=85.96,
+            tz_offset=7.0,
+            chart_data={},
+            summary="",
+            set_as_active=False,
+            db_path=self.db_path,
+        )
+
+        self.assertEqual(count_user_profiles(self.user_id, db_path=self.db_path), 3)
+
+        deleted = cleanup_duplicate_profiles(self.user_id, db_path=self.db_path)
+        self.assertEqual(deleted, 2)
+        self.assertEqual(count_user_profiles(self.user_id, db_path=self.db_path), 1)
+
+        active = get_active_profile(self.user_id, db_path=self.db_path)
+        self.assertIsNotNone(active)
+        self.assertEqual(active["id"], id_main)
 
 
 if __name__ == "__main__":

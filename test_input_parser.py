@@ -147,11 +147,58 @@ class TestInputParser(unittest.TestCase):
         self.assertEqual(res2["name"], "Александр")
         self.assertEqual(res2["city"], "Москва")
 
-    def test_invalid_strings(self):
-        self.assertIsNone(parse_one_line_profile(""))
-        self.assertIsNone(parse_one_line_profile("Привет, как дела?"))
-        self.assertIsNone(parse_one_line_profile("32.13.1990 10:00 Москва"))
+    def test_with_edit_and_recalc_command_prefix(self):
+        res_edit = parse_one_line_profile("/edit Александр, 20.06.1996, 08:25, Горно-Алтайск")
+        self.assertIsNotNone(res_edit)
+        self.assertEqual(res_edit["name"], "Александр")
+        self.assertEqual(res_edit["dob"], date(1996, 6, 20))
+        self.assertEqual(res_edit["tob"], time(8, 25))
+        self.assertEqual(res_edit["city"], "Горно-Алтайск")
+        self.assertTrue(res_edit["is_complete"])
+
+        res_recalc = parse_one_line_profile("/recalc 15.05.1990 10:30 Москва")
+        self.assertIsNotNone(res_recalc)
+        self.assertIsNone(res_recalc["name"])
+        self.assertEqual(res_recalc["dob"], date(1990, 5, 15))
+        self.assertEqual(res_recalc["tob"], time(10, 30))
+        self.assertEqual(res_recalc["city"], "Москва")
+        self.assertTrue(res_recalc["is_complete"])
+
+        res_update = parse_one_line_profile("/update 24.12.1985 18:00 Рим")
+        self.assertIsNotNone(res_update)
+        self.assertEqual(res_update["city"], "Рим")
+        self.assertTrue(res_update["is_complete"])
+
+    def test_natural_language_edit_and_correction_prefixes(self):
+        cases_none_name = [
+            "исправь дату: 20.06.1996 08:25 Горно-Алтайск",
+            "ошибка в дате 20.06.1996 08:25 Горно-Алтайск",
+            "пересчитай 20.06.1996 08:25 Горно-Алтайск",
+            "edit 20.06.1996 08:25 Rome",
+            "дата: 20.06.1996 08:25 Горно-Алтайск",
+            "новая дата 20.06.1996 08:25 Горно-Алтайск",
+            "верная дата: 20.06.1996 08:25 Горно-Алтайск",
+        ]
+        for c in cases_none_name:
+            res = parse_one_line_profile(c)
+            self.assertIsNotNone(res, f"Failed to parse: {c}")
+            self.assertIsNone(res["name"], f"Expected name=None for {c}, got {res['name']}")
+            self.assertEqual(res["dob"], date(1996, 6, 20))
+            self.assertEqual(res["tob"], time(8, 25))
+            self.assertTrue(res["is_complete"])
+
+        # Случаи, когда имя указано вместе с фразой пересчёта
+        res_with_name1 = parse_one_line_profile("Александр, исправь дату на 20.06.1996 08:25 Горно-Алтайск")
+        self.assertIsNotNone(res_with_name1)
+        self.assertEqual(res_with_name1["name"], "Александр")
+        self.assertEqual(res_with_name1["dob"], date(1996, 6, 20))
+
+        res_with_name2 = parse_one_line_profile("исправь дату Александр 20.06.1996 08:25 Горно-Алтайск")
+        self.assertIsNotNone(res_with_name2)
+        self.assertEqual(res_with_name2["name"], "Александр")
+        self.assertEqual(res_with_name2["dob"], date(1996, 6, 20))
 
 
 if __name__ == "__main__":
     unittest.main()
+

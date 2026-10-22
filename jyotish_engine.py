@@ -6,6 +6,12 @@ from datetime import datetime
 from typing import Optional
 from jyotishganit import calculate_birth_chart, get_birth_chart_json_string
 import json
+from i18n import (
+    normalize_language,
+    get_planet_name,
+    get_sign_name,
+    get_dignity_name,
+)
 
 
 # Названия планет на русском
@@ -592,31 +598,95 @@ def calculate_chara_karakas(chart_data: dict) -> dict:
     }
 
 
-def format_chara_karakas(karakas_dict: dict) -> str:
+def format_chara_karakas(karakas_dict: dict, lang: str = "ru") -> str:
     """Форматировать разбор Чара-Карак для Telegram."""
-    lines = ["🔮 *Кармическая задача души (Чара-Караки Джаймини)*\n"]
-    lines.append("В ведической астрологии градусы планет раскрывают ключевые роли вашей души в текущем воплощении:\n")
+    lang = normalize_language(lang)
+    if lang == "ru":
+        lines = ["🔮 *Кармическая задача души (Чара-Караки Джаймини)*\n"]
+        lines.append("В ведической астрологии градусы планет раскрывают ключевые роли вашей души в текущем воплощении:\n")
 
-    for k in karakas_dict.get("karakas", []):
-        code = k["code"]
-        name_ru = k["role_name_ru"]
-        p_ru = k["planet_ru"]
-        deg = k["degrees"]
-        sign = k["sign_ru"]
-        house = k["house"]
-        meaning = k["meaning"]
+        for k in karakas_dict.get("karakas", []):
+            code = k["code"]
+            name_ru = k["role_name_ru"]
+            p_ru = k["planet_ru"]
+            deg = k["degrees"]
+            sign = k["sign_ru"]
+            house = k["house"]
+            meaning = k["meaning"]
 
-        lines.append(f"*{name_ru}*: *{p_ru}* ({deg}°, {sign}, дом {house})")
-        lines.append(f"_{meaning}_")
-        if code == "AK":
-            lines.append(f"✨ *Главный кармический урок:* {k['lesson']}")
-        elif code == "AmK":
-            lines.append(f"💼 *Вектор карьеры:* успех через раскрытие качеств {p_ru} в сфере дома {house}.")
-        elif code == "DK":
-            lines.append(f"💍 *Характер партнёра:* черты супруга и тип союза связаны с качествами {p_ru}.")
-        lines.append("")
+            lines.append(f"*{name_ru}*: *{p_ru}* ({deg}°, {sign}, дом {house})")
+            lines.append(f"_{meaning}_")
+            if code == "AK":
+                lines.append(f"✨ *Главный кармический урок:* {k['lesson']}")
+            elif code == "AmK":
+                lines.append(f"💼 *Вектор карьеры:* успех через раскрытие качеств {p_ru} в сфере дома {house}.")
+            elif code == "DK":
+                lines.append(f"💍 *Характер партнёра:* черты супруга и тип союза связаны с качествами {p_ru}.")
+            lines.append("")
 
-    return "\n".join(lines).strip()
+        return "\n".join(lines).strip()
+    elif lang == "it":
+        role_names = {
+            "AK": "Atmakaraka (Pianeta dell'Anima)",
+            "AmK": "Amatyakaraka (Carriera e Intelletto)",
+            "BK": "Bhratrikaraka (Fratelli e Maestri)",
+            "MK": "Matrikaraka (Madre e Focolare)",
+            "PK": "Pitrikaraka (Padre e Antenati)",
+            "GK": "Gnatikaraka (Ostacoli e Parenti)",
+            "DK": "Darakaraka (Sposo/a e Partner)"
+        }
+        lines = ["🔮 *Compito Karmico dell'Anima (Chara Karaka di Jaimini)*\n"]
+        lines.append("Nell'astrologia vedica i gradi dei pianeti rivelano i ruoli chiave della tua anima nella vita attuale:\n")
+        for k in karakas_dict.get("karakas", []):
+            code = k["code"]
+            r_name = role_names.get(code, k.get("role_name", code))
+            p_name = get_planet_name(k.get("planet", ""), "it")
+            deg = k["degrees"]
+            s_name = get_sign_name(k.get("sign_ru", "").split()[0], "it")
+            house = k["house"]
+            meaning = k.get("meaning", "")
+            lines.append(f"*{r_name}*: *{p_name}* ({deg}°, {s_name}, casa {house})")
+            if meaning:
+                lines.append(f"_{meaning}_")
+            if code == "AK":
+                lines.append(f"✨ *Lezione karmica principale:* {k.get('lesson', '')}")
+            elif code == "AmK":
+                lines.append(f"💼 *Vettore carriera:* successo sviluppando le qualità di {p_name} nella casa {house}.")
+            elif code == "DK":
+                lines.append(f"💍 *Carattere del partner:* i tratti del coniuge sono legati all'energia di {p_name}.")
+            lines.append("")
+        return "\n".join(lines).strip()
+    else:  # en
+        role_names = {
+            "AK": "Atmakaraka (Soul Planet)",
+            "AmK": "Amatyakaraka (Career & Intellect)",
+            "BK": "Bhratrikaraka (Brothers & Gurus)",
+            "MK": "Matrikaraka (Mother & Hearth)",
+            "PK": "Pitrikaraka (Father & Ancestors)",
+            "GK": "Gnatikaraka (Obstacles & Relatives)",
+            "DK": "Darakaraka (Spouse & Partnership)"
+        }
+        lines = ["🔮 *Karmic Task of the Soul (Jaimini Chara Karakas)*\n"]
+        lines.append("In Vedic astrology, planetary degrees reveal the key roles of your soul in this incarnation:\n")
+        for k in karakas_dict.get("karakas", []):
+            code = k["code"]
+            r_name = role_names.get(code, k.get("role_name", code))
+            p_name = get_planet_name(k.get("planet", ""), "en")
+            deg = k["degrees"]
+            s_name = get_sign_name(k.get("sign_ru", "").split()[0], "en")
+            house = k["house"]
+            meaning = k.get("meaning", "")
+            lines.append(f"*{r_name}*: *{p_name}* ({deg}°, {s_name}, house {house})")
+            if meaning:
+                lines.append(f"_{meaning}_")
+            if code == "AK":
+                lines.append(f"✨ *Main karmic lesson:* {k.get('lesson', '')}")
+            elif code == "AmK":
+                lines.append(f"💼 *Career vector:* success through expressing {p_name} in house {house}.")
+            elif code == "DK":
+                lines.append(f"💍 *Spouse qualities:* partner traits and union dynamics are linked to {p_name}.")
+            lines.append("")
+        return "\n".join(lines).strip()
 
 
 # =========================================================================
@@ -675,43 +745,125 @@ def analyze_wealth_and_career(chart_data: dict) -> dict:
     }
 
 
-def format_wealth_analysis(wealth_data: dict) -> str:
+def format_wealth_analysis(wealth_data: dict, lang: str = "ru") -> str:
     """Форматировать финансовый разбор для Telegram."""
-    lines = ["💰 *Финансовый код и Карьера (Дхана & Карма бхавы)*\n"]
-
+    lang = normalize_language(lang)
     h2 = wealth_data["house_2"]
     h11 = wealth_data["house_11"]
     h10 = wealth_data["house_10"]
 
-    lines.append("🏦 *2-й дом (Накопления и сбережения):*")
-    lines.append(f"• Знак: {h2['sign_ru']} | Управитель: *{h2['lord_ru']}*")
-    occ2 = ", ".join(h2["occupants"]) if h2["occupants"] else "нет планет (чистый потенциал)"
-    lines.append(f"• Планеты в доме: {occ2}\n")
+    if lang == "ru":
+        lines = ["💰 *Финансовый код и Карьера (Дхана & Карма бхавы)*\n"]
 
-    lines.append("📈 *11-й дом (Прибыль, бизнес и сверхдоходы):*")
-    lines.append(f"• Знак: {h11['sign_ru']} | Управитель: *{h11['lord_ru']}*")
-    occ11 = ", ".join(h11["occupants"]) if h11["occupants"] else "нет планет"
-    lines.append(f"• Планеты в доме: {occ11}\n")
+        lines.append("🏦 *2-й дом (Накопления и сбережения):*")
+        lines.append(f"• Знак: {h2['sign_ru']} | Управитель: *{h2['lord_ru']}*")
+        occ2 = ", ".join(h2["occupants"]) if h2["occupants"] else "нет планет (чистый потенциал)"
+        lines.append(f"• Планеты в доме: {occ2}\n")
 
-    lines.append("🏛️ *10-й дом (Карьера, статус и признание):*")
-    lines.append(f"• Знак: {h10['sign_ru']} | Управитель: *{h10['lord_ru']}*")
-    occ10 = ", ".join(h10["occupants"]) if h10["occupants"] else "нет планет"
-    lines.append(f"• Планеты в доме: {occ10}\n")
+        lines.append("📈 *11-й дом (Прибыль, бизнес и сверхдоходы):*")
+        lines.append(f"• Знак: {h11['sign_ru']} | Управитель: *{h11['lord_ru']}*")
+        occ11 = ", ".join(h11["occupants"]) if h11["occupants"] else "нет планет"
+        lines.append(f"• Планеты в доме: {occ11}\n")
 
-    amk = wealth_data.get("amatyakaraka")
-    if amk:
-        lines.append(f"💼 *Аматьякарака (Вектор призвания):* *{amk['planet_ru']}* в доме {amk['house']} ({amk['sign_ru']})")
-        lines.append("  Максимальный финансовый рост происходит через развитие профессиональных качеств этой планеты.\n")
+        lines.append("🏛️ *10-й дом (Карьера, статус и признание):*")
+        lines.append(f"• Знак: {h10['sign_ru']} | Управитель: *{h10['lord_ru']}*")
+        occ10 = ", ".join(h10["occupants"]) if h10["occupants"] else "нет планет"
+        lines.append(f"• Планеты в доме: {occ10}\n")
 
-    dy = wealth_data.get("dhana_yogas", [])
-    if dy:
-        lines.append(f"✨ *Обнаружено Дхана-йог (комбинаций богатства):* {len(dy)}")
-        for y in dy:
-            lines.append(f"  • *{y.get('name_ru', y.get('name'))}*: {y.get('description', '')}")
-    else:
-        lines.append("✨ *Дхана-йоги:* Классические связки домов богатства умеренные. Финансовый рост строится через профессиональное мастерство 10-го дома и транзитные периоды.")
+        amk = wealth_data.get("amatyakaraka")
+        if amk:
+            lines.append(f"💼 *Аматьякарака (Вектор призвания):* *{amk['planet_ru']}* в доме {amk['house']} ({amk['sign_ru']})")
+            lines.append("  Максимальный финансовый рост происходит через развитие профессиональных качеств этой планеты.\n")
 
-    return "\n".join(lines).strip()
+        dy = wealth_data.get("dhana_yogas", [])
+        if dy:
+            lines.append(f"✨ *Обнаружено Дхана-йог (комбинаций богатства):* {len(dy)}")
+            for y in dy:
+                lines.append(f"  • *{y.get('name_ru', y.get('name'))}*: {y.get('description', '')}")
+        else:
+            lines.append("✨ *Дхана-йоги:* Классические связки домов богатства умеренные. Финансовый рост строится через профессиональное мастерство 10-го дома и транзитные периоды.")
+
+        return "\n".join(lines).strip()
+    elif lang == "it":
+        lines = ["💰 *Codice Finanziario e Carriera (Dhana & Karma Bhava)*\n"]
+
+        s2 = get_sign_name(h2.get("sign_ru", "").split()[0], "it")
+        l2 = get_planet_name(h2.get("lord_ru", "").split()[0], "it")
+        lines.append("🏦 *2ª Casa (Risparmi e Accumulo):*")
+        lines.append(f"• Segno: {s2} | Governatore: *{l2}*")
+        occ2 = ", ".join([get_planet_name(p.split()[0], "it") for p in h2["occupants"]]) if h2["occupants"] else "nessun pianeta (potenziale puro)"
+        lines.append(f"• Pianeti nella casa: {occ2}\n")
+
+        s11 = get_sign_name(h11.get("sign_ru", "").split()[0], "it")
+        l11 = get_planet_name(h11.get("lord_ru", "").split()[0], "it")
+        lines.append("📈 *11ª Casa (Profitti, Business ed Entrate):*")
+        lines.append(f"• Segno: {s11} | Governatore: *{l11}*")
+        occ11 = ", ".join([get_planet_name(p.split()[0], "it") for p in h11["occupants"]]) if h11["occupants"] else "nessun pianeta"
+        lines.append(f"• Pianeti nella casa: {occ11}\n")
+
+        s10 = get_sign_name(h10.get("sign_ru", "").split()[0], "it")
+        l10 = get_planet_name(h10.get("lord_ru", "").split()[0], "it")
+        lines.append("🏛️ *10ª Casa (Carriera, Status e Riconoscimento):*")
+        lines.append(f"• Segno: {s10} | Governatore: *{l10}*")
+        occ10 = ", ".join([get_planet_name(p.split()[0], "it") for p in h10["occupants"]]) if h10["occupants"] else "nessun pianeta"
+        lines.append(f"• Pianeti nella casa: {occ10}\n")
+
+        amk = wealth_data.get("amatyakaraka")
+        if amk:
+            p_name = get_planet_name(amk.get("planet_ru", "").split()[0], "it")
+            s_name = get_sign_name(amk.get("sign_ru", "").split()[0], "it")
+            lines.append(f"💼 *Amatyakaraka (Vettore di Vocazione):* *{p_name}* nella casa {amk['house']} ({s_name})")
+            lines.append("  La massima crescita economica avviene attraverso l'espressione professionale di questo pianeta.\n")
+
+        dy = wealth_data.get("dhana_yogas", [])
+        if dy:
+            lines.append(f"✨ *Dhana Yoga rilevati (combinazioni di ricchezza):* {len(dy)}")
+            for y in dy:
+                lines.append(f"  • *{y.get('name', '')}*: {y.get('description', '')}")
+        else:
+            lines.append("✨ *Dhana Yoga:* Combinazioni moderate. La crescita economica si sviluppa tramite la maestria professionale della 10ª casa e i transiti.")
+
+        return "\n".join(lines).strip()
+    else:  # en
+        lines = ["💰 *Financial Code & Career (Dhana & Karma Bhavas)*\n"]
+
+        s2 = get_sign_name(h2.get("sign_ru", "").split()[0], "en")
+        l2 = get_planet_name(h2.get("lord_ru", "").split()[0], "en")
+        lines.append("🏦 *2nd House (Accumulation & Savings):*")
+        lines.append(f"• Sign: {s2} | Lord: *{l2}*")
+        occ2 = ", ".join([get_planet_name(p.split()[0], "en") for p in h2["occupants"]]) if h2["occupants"] else "no planets (pure potential)"
+        lines.append(f"• Planets in house: {occ2}\n")
+
+        s11 = get_sign_name(h11.get("sign_ru", "").split()[0], "en")
+        l11 = get_planet_name(h11.get("lord_ru", "").split()[0], "en")
+        lines.append("📈 *11th House (Profits, Gains & Business):*")
+        lines.append(f"• Sign: {s11} | Lord: *{l11}*")
+        occ11 = ", ".join([get_planet_name(p.split()[0], "en") for p in h11["occupants"]]) if h11["occupants"] else "no planets"
+        lines.append(f"• Planets in house: {occ11}\n")
+
+        s10 = get_sign_name(h10.get("sign_ru", "").split()[0], "en")
+        l10 = get_planet_name(h10.get("lord_ru", "").split()[0], "en")
+        lines.append("🏛️ *10th House (Career, Status & Recognition):*")
+        lines.append(f"• Sign: {s10} | Lord: *{l10}*")
+        occ10 = ", ".join([get_planet_name(p.split()[0], "en") for p in h10["occupants"]]) if h10["occupants"] else "no planets"
+        lines.append(f"• Planets in house: {occ10}\n")
+
+        amk = wealth_data.get("amatyakaraka")
+        if amk:
+            p_name = get_planet_name(amk.get("planet_ru", "").split()[0], "en")
+            s_name = get_sign_name(amk.get("sign_ru", "").split()[0], "en")
+            lines.append(f"💼 *Amatyakaraka (Vocation Vector):* *{p_name}* in house {amk['house']} ({s_name})")
+            lines.append("  Maximum financial growth occurs by expressing the professional talents of this planet.\n")
+
+        dy = wealth_data.get("dhana_yogas", [])
+        if dy:
+            lines.append(f"✨ *Dhana Yogas Detected (Wealth Combinations):* {len(dy)}")
+            for y in dy:
+                lines.append(f"  • *{y.get('name', '')}*: {y.get('description', '')}")
+        else:
+            lines.append("✨ *Dhana Yogas:* Moderate wealth combinations. Long-term prosperity is achieved via 10th house excellence and transit timing.")
+
+        return "\n".join(lines).strip()
 
 
 # =========================================================================
@@ -887,101 +1039,300 @@ def get_upayas(chart_data: dict) -> dict:
     return {"remedies": remedies}
 
 
-def format_upayas(upaya_data: dict) -> str:
+def format_upayas(upaya_data: dict, lang: str = "ru") -> str:
     """Форматировать рекомендации по Упайям для Telegram."""
-    lines = ["🛡️ *Ведические Упайи (Методы гармонизации карты)*\n"]
-    lines.append("Упайи — это ведические инструменты коррекции судьбы через осознанные действия, мантры и благотворительность:\n")
+    lang = normalize_language(lang)
+    if lang == "ru":
+        lines = ["🛡️ *Ведические Упайи (Методы гармонизации карты)*\n"]
+        lines.append("Упайи — это ведические инструменты коррекции судьбы через осознанные действия, мантры и благотворительность:\n")
 
-    for r in upaya_data.get("remedies", []):
-        lines.append(f"🪐 *{r['planet_ru']}*")
-        lines.append(f"📍 *Причина:* {r['reason']}")
-        lines.append(f"📅 *День для практики:* {r['day']}")
-        lines.append(f"📿 *Мантра (108 раз):* `{r['mantra']}`")
-        lines.append(f"🎨 *Благоприятные цвета:* {r['colors']}")
-        lines.append(f"🤝 *Благотворительность:* {r['charity']}")
-        lines.append(f"✨ *Поведенческая практика:* {r['practices']}\n")
+        for r in upaya_data.get("remedies", []):
+            lines.append(f"🪐 *{r['planet_ru']}*")
+            lines.append(f"📍 *Причина:* {r['reason']}")
+            lines.append(f"📅 *День для практики:* {r['day']}")
+            lines.append(f"📿 *Мантра (108 раз):* `{r['mantra']}`")
+            lines.append(f"🎨 *Благоприятные цвета:* {r['colors']}")
+            lines.append(f"🤝 *Благотворительность:* {r['charity']}")
+            lines.append(f"✨ *Поведенческая практика:* {r['practices']}\n")
 
-    return "\n".join(lines).strip()
+        return "\n".join(lines).strip()
+    elif lang == "it":
+        lines = ["🛡️ *Upaya Vedici (Metodi di Armonizzazione)*\n"]
+        lines.append("Gli Upaya sono strumenti vedici di riequilibrio del destino tramite azioni consapevoli, mantra e beneficenza:\n")
+
+        days_it = {
+            "Воскресенье": "Domenica", "Понедельник": "Lunedì", "Вторник": "Martedì",
+            "Среда": "Mercoledì", "Четверг": "Giovedì", "Пятница": "Venerdì",
+            "Суббота": "Sabato", "Суббота / вечер": "Sabato (sera)", "Вторник / рассвет": "Martedì (alba)"
+        }
+        for r in upaya_data.get("remedies", []):
+            p_name = get_planet_name(r.get("planet", r.get("planet_ru", "").split()[0]), "it")
+            d_name = days_it.get(r.get("day"), r.get("day"))
+            lines.append(f"🪐 *{p_name}*")
+            lines.append(f"📍 *Motivo:* {r['reason']}")
+            lines.append(f"📅 *Giorno di pratica:* {d_name}")
+            lines.append(f"📿 *Mantra (108 volte):* `{r['mantra']}`")
+            lines.append(f"🎨 *Colori favorevoli:* {r['colors']}")
+            lines.append(f"🤝 *Beneficenza:* {r['charity']}")
+            lines.append(f"✨ *Pratica comportamentale:* {r['practices']}\n")
+
+        return "\n".join(lines).strip()
+    else:  # en
+        lines = ["🛡️ *Vedic Upayas (Remedial Measures)*\n"]
+        lines.append("Upayas are Vedic tools to harmonize planetary energies through conscious action, mantras, and charity:\n")
+
+        days_en = {
+            "Воскресенье": "Sunday", "Понедельник": "Monday", "Вторник": "Tuesday",
+            "Среда": "Wednesday", "Четверг": "Thursday", "Пятница": "Friday",
+            "Суббота": "Saturday", "Суббота / вечер": "Saturday (evening)", "Вторник / рассвет": "Tuesday (dawn)"
+        }
+        for r in upaya_data.get("remedies", []):
+            p_name = get_planet_name(r.get("planet", r.get("planet_ru", "").split()[0]), "en")
+            d_name = days_en.get(r.get("day"), r.get("day"))
+            lines.append(f"🪐 *{p_name}*")
+            lines.append(f"📍 *Reason:* {r['reason']}")
+            lines.append(f"📅 *Practice Day:* {d_name}")
+            lines.append(f"📿 *Mantra (108 times):* `{r['mantra']}`")
+            lines.append(f"🎨 *Favorable Colors:* {r['colors']}")
+            lines.append(f"🤝 *Charity:* {r['charity']}")
+            lines.append(f"✨ *Behavioral Practice:* {r['practices']}\n")
+
+        return "\n".join(lines).strip()
 
 
-
-def format_chart_summary(chart_data: dict) -> str:
+def format_chart_summary(chart_data: dict, lang: str = "ru") -> str:
     """Форматировать краткую сводку карты для отображения пользователю."""
-    lines = []
-    lines.append("🔮 *Натальная карта (Кундли)*\n")
+    lang = normalize_language(lang)
+    if lang == "ru":
+        lines = []
+        lines.append("🔮 *Натальная карта (Кундли)*\n")
 
-    # Панчанга
-    pan = chart_data["panchanga"]
-    lines.append("📅 *Панчанга:*")
-    lines.append(f"  Титхи: {pan['tithi']}")
-    lines.append(f"  Накшатра: {pan['nakshatra']}")
-    lines.append(f"  Йога: {pan['yoga']}")
-    lines.append(f"  Карана: {pan['karana']}")
-    lines.append(f"  Ваара: {pan['vaara']}")
-    lines.append("")
-
-    # Лагна (Асцендент)
-    if chart_data["houses"]:
-        asc = chart_data["houses"][0]
-        lines.append(f"⬆️ *Лагна (Асцендент):* {asc['sign_ru']}")
+        # Панчанга
+        pan = chart_data["panchanga"]
+        lines.append("📅 *Панчанга:*")
+        lines.append(f"  Титхи: {pan['tithi']}")
+        lines.append(f"  Накшатра: {pan['nakshatra']}")
+        lines.append(f"  Йога: {pan['yoga']}")
+        lines.append(f"  Карана: {pan['karana']}")
+        lines.append(f"  Ваара: {pan['vaara']}")
         lines.append("")
 
-    # Планеты
-    lines.append("🪐 *Позиции планет:*")
-    for p in chart_data["planets"]:
-        retro = " ℞" if p["motion"] == "retrograde" else ""
-        dignity = f" ({p['dignity']})" if p["dignity"] != "N/A" else ""
-        lines.append(
-            f"  {p['name_ru']}: {p['sign_ru']} "
-            f"{p['degrees']:.1f}°{retro}{dignity} | "
-            f"дом {p['house']} | {p['nakshatra']} пада {p['pada']}"
-        )
-    lines.append("")
+        # Лагна (Асцендент)
+        if chart_data["houses"]:
+            asc = chart_data["houses"][0]
+            lines.append(f"⬆️ *Лагна (Асцендент):* {asc['sign_ru']}")
+            lines.append("")
 
-    # Текущая даша
-    current = get_current_dasha(chart_data["dashas"])
-    if current["maha_dasha"]:
-        md = current["maha_dasha"]
-        lines.append(f"🕐 *Текущий период:*")
-        lines.append(f"  Маха-Даша: {md['planet_ru']} ({md['start']} — {md['end']})")
-        if current["antar_dasha"]:
-            ad = current["antar_dasha"]
-            lines.append(f"  Антар-Даша: {ad['planet_ru']} ({ad['start']} — {ad['end']})")
+        # Планеты
+        lines.append("🪐 *Позиции планет:*")
+        for p in chart_data["planets"]:
+            retro = " ℞" if p["motion"] == "retrograde" else ""
+            dignity = f" ({p['dignity']})" if p["dignity"] != "N/A" else ""
+            lines.append(
+                f"  {p['name_ru']}: {p['sign_ru']} "
+                f"{p['degrees']:.1f}°{retro}{dignity} | "
+                f"дом {p['house']} | {p['nakshatra']} пада {p['pada']}"
+            )
+        lines.append("")
 
-    return "\n".join(lines)
+        # Текущая даша
+        current = get_current_dasha(chart_data["dashas"])
+        if current["maha_dasha"]:
+            md = current["maha_dasha"]
+            lines.append(f"🕐 *Текущий период:*")
+            lines.append(f"  Маха-Даша: {md['planet_ru']} ({md['start']} — {md['end']})")
+            if current["antar_dasha"]:
+                ad = current["antar_dasha"]
+                lines.append(f"  Антар-Даша: {ad['planet_ru']} ({ad['start']} — {ad['end']})")
+
+        return "\n".join(lines)
+    elif lang == "it":
+        lines = []
+        lines.append("🔮 *Carta Natale (Kundli)*\n")
+
+        # Panchanga
+        pan = chart_data["panchanga"]
+        lines.append("📅 *Panchanga:*")
+        lines.append(f"  Tithi: {pan['tithi']}")
+        lines.append(f"  Nakshatra: {pan['nakshatra']}")
+        lines.append(f"  Yoga: {pan['yoga']}")
+        lines.append(f"  Karana: {pan['karana']}")
+        lines.append(f"  Vaara: {pan['vaara']}")
+        lines.append("")
+
+        # Lagna (Ascendente)
+        if chart_data["houses"]:
+            asc = chart_data["houses"][0]
+            asc_sign = get_sign_name(asc.get("sign", ""), "it")
+            lines.append(f"⬆️ *Lagna (Ascendente):* {asc_sign}")
+            lines.append("")
+
+        # Pianeti
+        lines.append("🪐 *Posizioni Planetarie:*")
+        for p in chart_data["planets"]:
+            retro = " ℞" if p.get("motion") == "retrograde" else ""
+            dignity = f" ({get_dignity_name(p['dignity'], 'it')})" if p.get("dignity") and p["dignity"] != "N/A" else ""
+            p_name = get_planet_name(p.get("name", ""), "it")
+            s_name = get_sign_name(p.get("sign", ""), "it")
+            lines.append(
+                f"  {p_name}: {s_name} "
+                f"{p['degrees']:.1f}°{retro}{dignity} | "
+                f"casa {p['house']} | {p['nakshatra']} pada {p['pada']}"
+            )
+        lines.append("")
+
+        # Periodo attuale
+        current = get_current_dasha(chart_data["dashas"])
+        if current["maha_dasha"]:
+            md = current["maha_dasha"]
+            md_name = get_planet_name(md.get("planet", md.get("planet_ru", "").split()[0]), "it")
+            lines.append(f"🕐 *Periodo Attuale:*")
+            lines.append(f"  Maha-Dasha: {md_name} ({md['start']} — {md['end']})")
+            if current["antar_dasha"]:
+                ad = current["antar_dasha"]
+                ad_name = get_planet_name(ad.get("planet", ad.get("planet_ru", "").split()[0]), "it")
+                lines.append(f"  Antar-Dasha: {ad_name} ({ad['start']} — {ad['end']})")
+
+        return "\n".join(lines)
+    else:  # en
+        lines = []
+        lines.append("🔮 *Natal Chart (Kundli)*\n")
+
+        # Panchanga
+        pan = chart_data["panchanga"]
+        lines.append("📅 *Panchanga:*")
+        lines.append(f"  Tithi: {pan['tithi']}")
+        lines.append(f"  Nakshatra: {pan['nakshatra']}")
+        lines.append(f"  Yoga: {pan['yoga']}")
+        lines.append(f"  Karana: {pan['karana']}")
+        lines.append(f"  Vaara: {pan['vaara']}")
+        lines.append("")
+
+        # Lagna (Ascendant)
+        if chart_data["houses"]:
+            asc = chart_data["houses"][0]
+            asc_sign = get_sign_name(asc.get("sign", ""), "en")
+            lines.append(f"⬆️ *Lagna (Ascendant):* {asc_sign}")
+            lines.append("")
+
+        # Planets
+        lines.append("🪐 *Planetary Positions:*")
+        for p in chart_data["planets"]:
+            retro = " ℞" if p.get("motion") == "retrograde" else ""
+            dignity = f" ({get_dignity_name(p['dignity'], 'en')})" if p.get("dignity") and p["dignity"] != "N/A" else ""
+            p_name = get_planet_name(p.get("name", ""), "en")
+            s_name = get_sign_name(p.get("sign", ""), "en")
+            lines.append(
+                f"  {p_name}: {s_name} "
+                f"{p['degrees']:.1f}°{retro}{dignity} | "
+                f"house {p['house']} | {p['nakshatra']} pada {p['pada']}"
+            )
+        lines.append("")
+
+        # Current period
+        current = get_current_dasha(chart_data["dashas"])
+        if current["maha_dasha"]:
+            md = current["maha_dasha"]
+            md_name = get_planet_name(md.get("planet", md.get("planet_ru", "").split()[0]), "en")
+            lines.append(f"🕐 *Current Period:*")
+            lines.append(f"  Maha-Dasha: {md_name} ({md['start']} — {md['end']})")
+            if current["antar_dasha"]:
+                ad = current["antar_dasha"]
+                ad_name = get_planet_name(ad.get("planet", ad.get("planet_ru", "").split()[0]), "en")
+                lines.append(f"  Antar-Dasha: {ad_name} ({ad['start']} — {ad['end']})")
+
+        return "\n".join(lines)
 
 
-def format_dasha_periods(chart_data: dict) -> str:
+def format_dasha_periods(chart_data: dict, lang: str = "ru") -> str:
     """Форматировать полный список Маха-Даш."""
-    lines = ["🕐 *Вимшоттари Даша — периоды жизни:*\n"]
+    lang = normalize_language(lang)
+    if lang == "ru":
+        lines = ["🕐 *Вимшоттари Даша — периоды жизни:*\n"]
 
-    # Баланс при рождении
-    bal = chart_data["dashas"].get("balance", {})
-    if bal:
-        for planet, years in bal.items():
-            planet_ru = PLANET_NAMES_RU.get(planet, planet)
-            lines.append(f"⚖️ Баланс при рождении: {planet_ru} — {years:.2f} лет\n")
+        # Баланс при рождении
+        bal = chart_data["dashas"].get("balance", {})
+        if bal:
+            for planet, years in bal.items():
+                planet_ru = PLANET_NAMES_RU.get(planet, planet)
+                lines.append(f"⚖️ Баланс при рождении: {planet_ru} — {years:.2f} лет\n")
 
-    now = datetime.now()
+        now = datetime.now()
 
-    for period in chart_data["dashas"].get("periods", []):
-        start = datetime.strptime(period["start"], "%d.%m.%Y")
-        end = datetime.strptime(period["end"], "%d.%m.%Y")
-        is_current = start <= now <= end
-        marker = " ◀️ *ТЕКУЩИЙ*" if is_current else ""
+        for period in chart_data["dashas"].get("periods", []):
+            start = datetime.strptime(period["start"], "%d.%m.%Y")
+            end = datetime.strptime(period["end"], "%d.%m.%Y")
+            is_current = start <= now <= end
+            marker = " ◀️ *ТЕКУЩИЙ*" if is_current else ""
 
-        lines.append(f"{'─' * 30}")
-        lines.append(f"*{period['planet_ru']}* ({period['start']} — {period['end']}){marker}")
+            lines.append(f"{'─' * 30}")
+            lines.append(f"*{period['planet_ru']}* ({period['start']} — {period['end']}){marker}")
 
-        if is_current and period.get("antardashas"):
-            lines.append("  Подпериоды (Антар-Даша):")
-            for ad in period["antardashas"]:
-                ad_start = datetime.strptime(ad["start"], "%d.%m.%Y")
-                ad_end = datetime.strptime(ad["end"], "%d.%m.%Y")
-                ad_current = " ⬅️" if ad_start <= now <= ad_end else ""
-                lines.append(f"    {ad['planet_ru']}: {ad['start']} — {ad['end']}{ad_current}")
+            if is_current and period.get("antardashas"):
+                lines.append("  Подпериоды (Антар-Даша):")
+                for ad in period["antardashas"]:
+                    ad_start = datetime.strptime(ad["start"], "%d.%m.%Y")
+                    ad_end = datetime.strptime(ad["end"], "%d.%m.%Y")
+                    ad_current = " ⬅️" if ad_start <= now <= ad_end else ""
+                    lines.append(f"    {ad['planet_ru']}: {ad['start']} — {ad['end']}{ad_current}")
 
-    return "\n".join(lines)
+        return "\n".join(lines)
+    elif lang == "it":
+        lines = ["🕐 *Vimshottari Dasha — Periodi di Vita:*\n"]
+        bal = chart_data["dashas"].get("balance", {})
+        if bal:
+            for planet, years in bal.items():
+                p_name = get_planet_name(planet, "it")
+                lines.append(f"⚖️ Bilancio alla nascita: {p_name} — {years:.2f} anni\n")
+
+        now = datetime.now()
+        for period in chart_data["dashas"].get("periods", []):
+            start = datetime.strptime(period["start"], "%d.%m.%Y")
+            end = datetime.strptime(period["end"], "%d.%m.%Y")
+            is_current = start <= now <= end
+            marker = " ◀️ *ATTUALE*" if is_current else ""
+            p_name = get_planet_name(period.get("planet", period.get("planet_ru", "").split()[0]), "it")
+
+            lines.append(f"{'─' * 30}")
+            lines.append(f"*{p_name}* ({period['start']} — {period['end']}){marker}")
+
+            if is_current and period.get("antardashas"):
+                lines.append("  Sottoperiodi (Antar-Dasha):")
+                for ad in period["antardashas"]:
+                    ad_start = datetime.strptime(ad["start"], "%d.%m.%Y")
+                    ad_end = datetime.strptime(ad["end"], "%d.%m.%Y")
+                    ad_current = " ⬅️" if ad_start <= now <= ad_end else ""
+                    ad_name = get_planet_name(ad.get("planet", ad.get("planet_ru", "").split()[0]), "it")
+                    lines.append(f"    {ad_name}: {ad['start']} — {ad['end']}{ad_current}")
+        return "\n".join(lines)
+    else:  # en
+        lines = ["🕐 *Vimshottari Dasha — Life Periods:*\n"]
+        bal = chart_data["dashas"].get("balance", {})
+        if bal:
+            for planet, years in bal.items():
+                p_name = get_planet_name(planet, "en")
+                lines.append(f"⚖️ Birth Balance: {p_name} — {years:.2f} years\n")
+
+        now = datetime.now()
+        for period in chart_data["dashas"].get("periods", []):
+            start = datetime.strptime(period["start"], "%d.%m.%Y")
+            end = datetime.strptime(period["end"], "%d.%m.%Y")
+            is_current = start <= now <= end
+            marker = " ◀️ *CURRENT*" if is_current else ""
+            p_name = get_planet_name(period.get("planet", period.get("planet_ru", "").split()[0]), "en")
+
+            lines.append(f"{'─' * 30}")
+            lines.append(f"*{p_name}* ({period['start']} — {period['end']}){marker}")
+
+            if is_current and period.get("antardashas"):
+                lines.append("  Sub-periods (Antar-Dasha):")
+                for ad in period["antardashas"]:
+                    ad_start = datetime.strptime(ad["start"], "%d.%m.%Y")
+                    ad_end = datetime.strptime(ad["end"], "%d.%m.%Y")
+                    ad_current = " ⬅️" if ad_start <= now <= ad_end else ""
+                    ad_name = get_planet_name(ad.get("planet", ad.get("planet_ru", "").split()[0]), "en")
+                    lines.append(f"    {ad_name}: {ad['start']} — {ad['end']}{ad_current}")
+        return "\n".join(lines)
 
 
 # Порядок знаков зодиака для расчёта Саде-Сати
