@@ -2831,6 +2831,54 @@ def warmup_ephemeris():
 
 # ===================== ТОЧКА ВХОДА =====================
 
+
+
+async def fallback_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Глобальный обработчик любого произвольного текста вне диалогов."""
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text.strip()
+    user_id = update.effective_user.id if update.effective_user else 0
+
+    # Проверим, может пользователь ввёл данные рождения одной строкой:
+    parsed = parse_one_line_profile(text)
+    if parsed and parsed.get("is_complete"):
+        return await chart_one_line_direct(update, context)
+
+    msg = (
+        "\U0001f64f *Я на связи!*\n\n"
+        "Чтобы составить гороскоп или рассчитать периоды, нажми на кнопку в меню ниже "
+        "или воспользуйся быстрыми командами:\n\n"
+        "• /chart — составить натальную карту\n"
+        "• /dasha — периоды жизни (Вимшоттари Даша)\n"
+        "• /money — анализ финансов и карьеры\n"
+        "• /karma — кармическая задача (Атмакарака)\n"
+        "• /sadesati — расчёт периода Саде-Сати\n"
+        "• /yoga — поиск йог в гороскопе\n"
+        "• /compat — совместимость партнёров\n"
+        "• /ask — задать вопрос ИИ-астрологу\n"
+        "• /profile — мои профили и переключение\n"
+        "• /help — подробная справка"
+    ).encode('utf-8').decode('unicode_escape')
+    await update.effective_message.reply_text(
+        msg,
+        parse_mode="Markdown",
+        reply_markup=get_main_reply_keyboard()
+    )
+
+
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Глобальный перехватчик любых необработанных исключений."""
+    logger.exception(f"Необработанное исключение: {context.error}")
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ Произошла ошибка при обработке запроса. Пожалуйста, попробуй ещё раз или отправь команду /start",
+                reply_markup=get_main_reply_keyboard()
+            )
+        except Exception:
+            pass
+
 def main():
     init_db()
     start_health_server()
@@ -2940,6 +2988,10 @@ def main():
     # Регистрация платёжных хэндлеров (Telegram Stars)
     app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
+
+    # Регистрация глобального обработчика ошибок и фолбэка текста
+    app.add_error_handler(global_error_handler)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_text_handler))
 
     print("🚀 Джьотиш-бот успешно запущен с поддержкой Telegram Stars и интерактивной навигацией!")
     app.run_polling()
