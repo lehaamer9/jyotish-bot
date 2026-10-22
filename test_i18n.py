@@ -84,7 +84,7 @@ class TestI18nCore(unittest.TestCase):
 
     def test_supported_languages_list(self):
         self.assertEqual(SUPPORTED_LANGUAGES, ["ru", "en", "it"])
-        self.assertEqual(DEFAULT_LANGUAGE, "ru")
+        self.assertEqual(DEFAULT_LANGUAGE, "en")
         self.assertIn("ru", LANGUAGE_LABELS)
         self.assertIn("en", LANGUAGE_LABELS)
         self.assertIn("it", LANGUAGE_LABELS)
@@ -112,14 +112,16 @@ class TestI18nCore(unittest.TestCase):
         self.assertEqual(normalize_language("it-IT"), "it")
         self.assertEqual(normalize_language("it_CH"), "it")
 
-        # Non-supported or empty fallbacks to DEFAULT_LANGUAGE ('ru')
-        self.assertEqual(normalize_language(""), "ru")
-        self.assertEqual(normalize_language(None), "ru")
-        self.assertEqual(normalize_language(123), "ru")
-        self.assertEqual(normalize_language("de"), "ru")
-        self.assertEqual(normalize_language("fr"), "ru")
-        self.assertEqual(normalize_language("es"), "ru")
-        self.assertEqual(normalize_language("zh"), "ru")
+        # Non-supported or empty fallbacks to DEFAULT_LANGUAGE ('en')
+        self.assertEqual(normalize_language(""), "en")
+        self.assertEqual(normalize_language(None), "en")
+        self.assertEqual(normalize_language(123), "en")
+        self.assertEqual(normalize_language("de"), "en")
+        self.assertEqual(normalize_language("fr"), "en")
+        self.assertEqual(normalize_language("es"), "en")
+        self.assertEqual(normalize_language("zh"), "en")
+        self.assertEqual(normalize_language("ar"), "en")
+        self.assertEqual(normalize_language("unknown"), "en")
 
     def test_t_function_translations_and_placeholders(self):
         # Test key existence across all 3 languages
@@ -178,9 +180,9 @@ class TestI18nLanguageResolution(unittest.TestCase):
         self.assertIsNone(get_user_language(self.user_id, db_path=self.db_path))
 
     def test_resolution_hierarchy_priority(self):
-        # Case A: Neither DB nor Telegram client -> Fallback 'ru'
+        # Case A: Neither DB nor Telegram client -> Fallback 'en'
         res = get_user_lang(user_id=self.user_id, db_path=self.db_path)
-        self.assertEqual(res, "ru")
+        self.assertEqual(res, "en")
 
         # Case B: Telegram client says 'it', no DB setting -> Resolves to 'it'
         update_mock = MagicMock()

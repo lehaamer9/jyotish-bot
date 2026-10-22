@@ -6,10 +6,78 @@
 import os
 import json
 import asyncio
-from typing import Optional
+from datetime import datetime
+from typing import Optional, Tuple
 
 
-from i18n import normalize_language
+from i18n import normalize_language, get_planet_name
+from jyotish_engine import get_current_dasha
+
+MONTH_NAMES = {
+    "ru": ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"],
+    "en": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    "it": ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"],
+}
+
+
+def format_current_date_str(dt: Optional[datetime] = None, lang: str = "ru") -> str:
+    """Форматирует текущую дату на указанном языке без привязки к локали ОС."""
+    if dt is None:
+        dt = datetime.now()
+    norm_lang = normalize_language(lang)
+    m_idx = dt.month - 1
+    if norm_lang == "ru":
+        return f"{dt.day} {MONTH_NAMES['ru'][m_idx]} {dt.year} г. ({dt.strftime('%d.%m.%Y')})"
+    elif norm_lang == "it":
+        return f"{dt.day} {MONTH_NAMES['it'][m_idx]} {dt.year} ({dt.strftime('%d.%m.%Y')})"
+    else:  # en
+        return f"{MONTH_NAMES['en'][m_idx]} {dt.day}, {dt.year} ({dt.strftime('%d.%m.%Y')})"
+
+
+def format_current_dasha_info(chart_data: dict, dt: Optional[datetime] = None, lang: str = "ru") -> Tuple[str, str, str]:
+    """
+    Возвращает (dasha_info_str, md_name, ad_name) на указанном языке.
+    """
+    if dt is None:
+        dt = datetime.now()
+    norm_lang = normalize_language(lang)
+    curr_dasha = get_current_dasha(chart_data, dt)
+    md = curr_dasha.get("maha_dasha")
+    ad = curr_dasha.get("antar_dasha")
+
+    if norm_lang == "ru":
+        md_name = md.get("planet_ru", md.get("planet", "Не определена")) if md else "Не определена"
+        ad_name = ad.get("planet_ru", ad.get("planet", "Не определена")) if ad else "Не определена"
+        lines = []
+        if md:
+            lines.append(f"• Маха-Даша: {md_name} (с {md.get('start')} по {md.get('end')})")
+        if ad:
+            lines.append(f"• Антар-Даша: {ad_name} (с {ad.get('start')} по {ad.get('end')})")
+        dasha_info = "\n".join(lines) if lines else "Текущий период не определён"
+    elif norm_lang == "it":
+        md_p = get_planet_name(md.get("planet", ""), "it") if md else "Non definito"
+        ad_p = get_planet_name(ad.get("planet", ""), "it") if ad else "Non definito"
+        md_name = md_p
+        ad_name = ad_p
+        lines = []
+        if md:
+            lines.append(f"• Maha-Dasha: {md_name} (dal {md.get('start')} al {md.get('end')})")
+        if ad:
+            lines.append(f"• Antar-Dasha: {ad_name} (dal {ad.get('start')} al {ad.get('end')})")
+        dasha_info = "\n".join(lines) if lines else "Periodo attuale non definito"
+    else:  # en
+        md_p = get_planet_name(md.get("planet", ""), "en") if md else "Not defined"
+        ad_p = get_planet_name(ad.get("planet", ""), "en") if ad else "Not defined"
+        md_name = md_p
+        ad_name = ad_p
+        lines = []
+        if md:
+            lines.append(f"• Maha-Dasha: {md_name} (from {md.get('start')} to {md.get('end')})")
+        if ad:
+            lines.append(f"• Antar-Dasha: {ad_name} (from {ad.get('start')} to {ad.get('end')})")
+        dasha_info = "\n".join(lines) if lines else "Current period not defined"
+
+    return dasha_info, md_name, ad_name
 
 
 # Системные промпты для Джьотиш-астролога на разных языках
@@ -41,6 +109,10 @@ JYOTISH_SYSTEM_PROMPT = JYOTISH_SYSTEM_PROMPTS["ru"]
 
 CHART_INTERPRETATION_PROMPT = """Проанализируй натальную карту (D1).
 
+Текущая дата: {current_date_str}
+Текущий период (Вимшоттари Даша на {current_date_str}):
+{current_dasha_info}
+
 {chart_summary}
 
 ```json
@@ -58,6 +130,10 @@ CHART_INTERPRETATION_PROMPT = """Проанализируй натальную �
 """
 
 DASHA_INTERPRETATION_PROMPT = """Проанализируй периоды Вимшоттари Даша.
+
+Текущая дата: {current_date_str}
+Текущий активный период (на {current_date_str}):
+{current_dasha_info}
 
 {chart_summary}
 
@@ -96,6 +172,10 @@ COMPATIBILITY_PROMPT = """Синастрический анализ совмес
 """
 
 ASK_QUESTION_PROMPT = """Ты — опытный ведический астролог (Джьотиш). Ответь на вопрос пользователя, опираясь на его натальную карту и планетные периоды.
+
+Текущая дата: {current_date_str}
+Текущий период (Вимшоттари Даша на {current_date_str}):
+{current_dasha_info}
 
 {chart_summary}
 
@@ -181,6 +261,10 @@ CHART_INTERPRETATION_PROMPTS = {
     "ru": CHART_INTERPRETATION_PROMPT,
     "en": """Analyze the natal chart (D1).
 
+Current date: {current_date_str}
+Active period (Vimshottari Dasha as of {current_date_str}):
+{current_dasha_info}
+
 {chart_summary}
 
 ```json
@@ -197,6 +281,10 @@ Provide interpretation by sections:
 7. 🪔 **Upayas:** Practical remedial recommendations.
 """,
     "it": """Analizza il tema natale (D1).
+
+Data corrente: {current_date_str}
+Periodo attivo (Vimshottari Dasha al {current_date_str}):
+{current_dasha_info}
 
 {chart_summary}
 
@@ -219,6 +307,10 @@ DASHA_INTERPRETATION_PROMPTS = {
     "ru": DASHA_INTERPRETATION_PROMPT,
     "en": """Analyze Vimshottari Dasha planetary periods.
 
+Current date: {current_date_str}
+Active planetary period (as of {current_date_str}):
+{current_dasha_info}
+
 {chart_summary}
 
 ```json
@@ -233,6 +325,10 @@ Analysis breakdown:
 5. 🪔 **Upayas:** Harmonization methods for the period planets.
 """,
     "it": """Analizza i periodi planetari Vimshottari Dasha.
+
+Data reale corrente: {current_date_str}
+Periodo planetario attivo (al {current_date_str}):
+{current_dasha_info}
 
 {chart_summary}
 
@@ -299,6 +395,10 @@ ASK_QUESTION_PROMPTS = {
     "ru": ASK_QUESTION_PROMPT,
     "en": """You are an experienced Vedic astrologer (Jyotishi). Answer the user's question based on their birth chart and planetary periods.
 
+Current date: {current_date_str}
+Active period (Vimshottari Dasha as of {current_date_str}):
+{current_dasha_info}
+
 {chart_summary}
 
 ```json
@@ -317,6 +417,10 @@ Instructions:
 3. Give practical recommendations and Vedic upayas (remedies).
 """,
     "it": """Sei un esperto astrologo vedico (Jyotishi). Rispondi alla domanda dell'utente basandoti sul suo tema natale e sui periodi planetari.
+
+Data corrente: {current_date_str}
+Periodo attivo (Vimshottari Dasha al {current_date_str}):
+{current_dasha_info}
 
 {chart_summary}
 
@@ -505,24 +609,38 @@ class GeminiInterpreter:
         norm = normalize_language(lang)
         return JYOTISH_SYSTEM_PROMPTS.get(norm, JYOTISH_SYSTEM_PROMPTS["ru"])
 
-    async def interpret_chart(self, chart_data: dict, chart_summary: str, lang: str = "ru") -> str:
+    async def interpret_chart(self, chart_data: dict, chart_summary: str, lang: str = "ru", now: Optional[datetime] = None) -> str:
         """Интерпретировать натальную карту."""
         lang = normalize_language(lang)
+        if now is None:
+            now = datetime.now()
+        date_str = format_current_date_str(now, lang=lang)
+        dasha_info, _, _ = format_current_dasha_info(chart_data, now, lang=lang)
+
         template = CHART_INTERPRETATION_PROMPTS.get(lang, CHART_INTERPRETATION_PROMPT)
         compact = _compact_chart_json(chart_data)
         prompt = template.format(
             chart_summary=chart_summary,
             chart_json=compact,
+            current_date_str=date_str,
+            current_dasha_info=dasha_info,
         )
         return await self._generate(prompt, lang=lang)
 
-    async def interpret_dasha(self, chart_data: dict, chart_summary: str, lang: str = "ru") -> str:
+    async def interpret_dasha(self, chart_data: dict, chart_summary: str, lang: str = "ru", now: Optional[datetime] = None) -> str:
         """Интерпретировать периоды Даша."""
         lang = normalize_language(lang)
+        if now is None:
+            now = datetime.now()
+        date_str = format_current_date_str(now, lang=lang)
+        dasha_info, _, _ = format_current_dasha_info(chart_data, now, lang=lang)
+
         template = DASHA_INTERPRETATION_PROMPTS.get(lang, DASHA_INTERPRETATION_PROMPT)
         prompt = template.format(
             chart_summary=chart_summary,
             dasha_json=json.dumps(chart_data["dashas"], ensure_ascii=False, indent=2),
+            current_date_str=date_str,
+            current_dasha_info=dasha_info,
         )
         return await self._generate(prompt, lang=lang)
 
@@ -542,9 +660,14 @@ class GeminiInterpreter:
         return await self._generate(prompt, lang=lang)
 
     async def interpret_ask_question(self, chart_data: dict, chart_summary: str,
-                                      user_question: str, forecast_context: str = "", lang: str = "ru") -> str:
+                                      user_question: str, forecast_context: str = "", lang: str = "ru", now: Optional[datetime] = None) -> str:
         """Ответить на свободный вопрос пользователя на основе его натальной карты и прогноза."""
         lang = normalize_language(lang)
+        if now is None:
+            now = datetime.now()
+        date_str = format_current_date_str(now, lang=lang)
+        dasha_info, _, _ = format_current_dasha_info(chart_data, now, lang=lang)
+
         template = ASK_QUESTION_PROMPTS.get(lang, ASK_QUESTION_PROMPT)
         compact = _compact_chart_json(chart_data)
         prompt = template.format(
@@ -552,6 +675,8 @@ class GeminiInterpreter:
             chart_json=compact,
             forecast_context=forecast_context,
             user_question=user_question,
+            current_date_str=date_str,
+            current_dasha_info=dasha_info,
         )
         return await self._generate(prompt, lang=lang)
 

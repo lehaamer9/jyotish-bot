@@ -196,6 +196,7 @@ class TestProfilesIntegration(unittest.TestCase):
     async def _run_start_command_with_profile(self, has_profile: bool):
         update_mock = MagicMock()
         update_mock.effective_user.id = self.user_id
+        update_mock.effective_user.language_code = "ru"
         update_mock.effective_message.reply_text = AsyncMock()
         context_mock = MagicMock()
         context_mock.user_data = {}
@@ -317,6 +318,7 @@ class TestProfilesIntegration(unittest.TestCase):
         # Сначала без профиля
         update_mock = MagicMock()
         update_mock.effective_user.id = 554433
+        update_mock.effective_user.language_code = "ru"
         update_mock.effective_message.reply_text = AsyncMock()
         context_mock = MagicMock()
         context_mock.user_data = {}
@@ -414,6 +416,7 @@ class TestProfilesIntegration(unittest.TestCase):
         import asyncio
         update_mock = MagicMock()
         update_mock.effective_user.id = self.user_id
+        update_mock.effective_user.language_code = "ru"
         update_mock.message.text = "Александр"
         update_mock.message.reply_text = AsyncMock()
         context_mock = MagicMock()
@@ -1053,6 +1056,7 @@ class TestProfilesIntegration(unittest.TestCase):
         # Вызываем команду /cleanprofiles
         update_mock = MagicMock()
         update_mock.effective_user.id = self.user_id
+        update_mock.effective_user.language_code = "ru"
         update_mock.effective_message.reply_text = AsyncMock()
         context_mock = MagicMock()
         context_mock.user_data = {}
@@ -1064,6 +1068,70 @@ class TestProfilesIntegration(unittest.TestCase):
         self.assertTrue(update_mock.effective_message.reply_text.called)
         reply_text = update_mock.effective_message.reply_text.call_args[0][0]
         self.assertIn("Удалено устаревших дубликатов: 1", reply_text)
+
+    def test_stop_words_in_profile_name_received_does_not_create_profile(self):
+        import asyncio
+        update_mock = MagicMock()
+        update_mock.effective_user.id = self.user_id
+        update_mock.effective_user.language_code = "ru"
+        update_mock.message.text = "бот сказал что сейчас период кончающийся в марте 2026"
+        update_mock.message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {}
+
+        state = asyncio.run(bot.profile_name_received(update_mock, context_mock))
+        self.assertEqual(state, bot.WAITING_PROFILE_NAME)
+        self.assertIsNone(context_mock.user_data.get("temp_profile_name"))
+        self.assertTrue(update_mock.message.reply_text.called)
+        reply_text = update_mock.message.reply_text.call_args[0][0]
+        self.assertIn("режим создания/настройки", reply_text)
+        reply_markup = update_mock.message.reply_text.call_args[1].get("reply_markup")
+        self.assertIsNotNone(reply_markup)
+        buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
+        self.assertIn("nav_ask", buttons)
+        self.assertIn("reset_cache_only", buttons)
+
+    def test_stop_words_in_chart_dob_received_does_not_set_dob(self):
+        import asyncio
+        update_mock = MagicMock()
+        update_mock.effective_user.id = self.user_id
+        update_mock.effective_user.language_code = "ru"
+        update_mock.message.text = "в боте ошибка даты"
+        update_mock.message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {"temp_profile_name": "Александр"}
+
+        state = asyncio.run(bot.chart_dob_received(update_mock, context_mock))
+        self.assertEqual(state, bot.WAITING_DOB)
+        self.assertIsNone(context_mock.user_data.get("temp_dob"))
+        self.assertEqual(context_mock.user_data.get("temp_profile_name"), "Александр")
+        self.assertTrue(update_mock.message.reply_text.called)
+        reply_text = update_mock.message.reply_text.call_args[0][0]
+        self.assertIn("ожидает дату рождения", reply_text)
+        reply_markup = update_mock.message.reply_text.call_args[1].get("reply_markup")
+        self.assertIsNotNone(reply_markup)
+        buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
+        self.assertIn("nav_ask", buttons)
+        self.assertIn("reset_cache_only", buttons)
+
+    def test_discussive_message_in_fallback_text_handler(self):
+        import asyncio
+        update_mock = MagicMock()
+        update_mock.effective_user.id = self.user_id
+        update_mock.effective_user.language_code = "ru"
+        update_mock.message.text = "почему сейчас период марс?"
+        update_mock.effective_message.reply_text = AsyncMock()
+        context_mock = MagicMock()
+        context_mock.user_data = {}
+
+        asyncio.run(bot.fallback_text_handler(update_mock, context_mock))
+        self.assertTrue(update_mock.effective_message.reply_text.called)
+        reply_text = update_mock.effective_message.reply_text.call_args[0][0]
+        self.assertIn("Вопрос астрологу или разбор периодов", reply_text)
+        reply_markup = update_mock.effective_message.reply_text.call_args[1].get("reply_markup")
+        self.assertIsNotNone(reply_markup)
+        buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
+        self.assertIn("nav_ask", buttons)
 
 
 if __name__ == "__main__":

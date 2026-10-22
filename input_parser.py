@@ -25,6 +25,31 @@ INSTRUCTION_WORDS = {
 }
 
 
+DISCUSSIVE_STOP_WORDS_RE = re.compile(
+    r'\b(?:'
+    r'в\s+боте|бот[а-яё]*|bot[s]?|'
+    r'период[а-яё]*|period[s]?|periodo|periodi|'
+    r'даш[а-яё]*|dasha[s]?|махадаш[а-яё]*|антардаш[а-яё]*|mahadasha|antardasha|'
+    r'почему|зачем|why|perch[eé]|'
+    r'сейчас|adesso|'
+    r'кончающ[а-яё]*|закончил[а-яё]*|завершил[а-яё]*|заканчива[а-яё]*|ended|ends|terminat[a-z]*|'
+    r'сказал[а-яё]*|говорит|пишет|показывает|said|says|'
+    r'ошибк[а-яё]*\s+дат[а-яё]*|ошибк[а-яё]*\s+в\s+боте|'
+    r'в\s+марте\s+\d{4}|в\s+октябре\s+\d{4}|сейчас\s+октябрь|сейчас\s+март|'
+    r'in\s+march\s+\d{4}|in\s+october\s+\d{4}'
+    r')\b',
+    re.IGNORECASE
+)
+
+
+def is_discussive_or_error_query(text: Optional[str]) -> bool:
+    """Проверяет, содержит ли текст рассуждения о периодах/датах/ошибках бота."""
+    if not text or not isinstance(text, str):
+        return False
+    cleaned = re.sub(r'@\w+bot\b', '', text, flags=re.IGNORECASE)
+    return bool(DISCUSSIVE_STOP_WORDS_RE.search(cleaned))
+
+
 def is_instruction_phrase(text: Optional[str]) -> bool:
     """Проверяет, состоит ли строка исключительно из служебных/инструкционных слов."""
     if not text:
@@ -47,7 +72,7 @@ def extract_clean_name(text: Optional[str]) -> Optional[str]:
     ).strip(" ,;:\t\n-")
     raw = re.sub(r'\s+(?:родился|родилась|born|nato|nata)\b.*', '', raw, flags=re.IGNORECASE).strip(" ,;:\t\n-")
 
-    if is_instruction_phrase(raw):
+    if is_discussive_or_error_query(raw) or is_instruction_phrase(raw):
         return None
 
     words = [w for w in re.split(r'[,;:\s]+', raw) if w]
@@ -60,7 +85,7 @@ def extract_clean_name(text: Optional[str]) -> Optional[str]:
         return None
 
     res = " ".join(words)
-    if is_instruction_phrase(res):
+    if is_discussive_or_error_query(res) or is_instruction_phrase(res):
         return None
     return res
 
@@ -90,6 +115,9 @@ def parse_one_line_profile(raw_text: str) -> Optional[Dict[str, Any]]:
     или None, если дата не найдена в строке.
     """
     if not raw_text or not isinstance(raw_text, str):
+        return None
+
+    if is_discussive_or_error_query(raw_text):
         return None
 
     # Очистка команд и упоминаний бота

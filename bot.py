@@ -44,7 +44,7 @@ from telegram.ext import (
     filters,
 )
 from telegram.ext.filters import MessageFilter
-from input_parser import parse_one_line_profile
+from input_parser import parse_one_line_profile, is_discussive_or_error_query
 from chart_renderer import render_kundli_chart
 
 from jyotish_engine import (
@@ -150,6 +150,34 @@ def is_keep_input(text: Optional[str]) -> bool:
         "оставить", "сохранить", "пропустить", "дальше", "без изменений",
         "lascia", "mantieni", "salta", "avanti"
     }
+
+
+QUESTION_OR_COMPLAINT_STOP_WORDS_RE = re.compile(
+    r'\b(?:'
+    r'в\s+боте|бот[а-яё]*|bot[s]?|'
+    r'период[а-яё]*|period[s]?|periodo|periodi|'
+    r'даш[а-яё]*|dasha[s]?|махадаш[а-яё]*|антардаш[а-яё]*|mahadasha|antardasha|'
+    r'почему|зачем|когда|как|что|why|what|when|how|perch[eé]|quando|come|cosa|'
+    r'сейчас|adesso|current|attualmente|'
+    r'кончающ[а-яё]*|закончил[а-яё]*|завершил[а-яё]*|заканчива[а-яё]*|ended|ends|terminat[a-z]*|'
+    r'сказал[а-яё]*|говорит|пишет|показывает|said|says|'
+    r'ошибк[а-яё]*|error[s]?|errore|errori|wrong|incorrect|sbagliat[oaie]|неправильн[а-яё]*|неверн[а-яё]*|'
+    r'жалоб[а-яё]*|претензи[а-яё]*|проблем[а-яё]*|problem[s]?|issue[s]?|'
+    r'в\s+марте\s+\d{4}|в\s+октябре\s+\d{4}|сейчас\s+октябрь|сейчас\s+март|'
+    r'in\s+march\s+\d{4}|in\s+october\s+\d{4}'
+    r')\b',
+    re.IGNORECASE
+)
+
+
+def has_question_or_complaint_stop_words(text: Optional[str]) -> bool:
+    """Проверяет, содержит ли текст вопрос, жалобу или обсуждение периодов/ошибок."""
+    if not text or not isinstance(text, str):
+        return False
+    if "?" in text:
+        return True
+    cleaned = re.sub(r'@\w+bot\b', '', text, flags=re.IGNORECASE)
+    return bool(QUESTION_OR_COMPLAINT_STOP_WORDS_RE.search(cleaned)) or is_discussive_or_error_query(cleaned)
 
 
 # Telegram ID администратора (Александр)
@@ -1117,6 +1145,36 @@ async def profile_name_received(update: Update, context: ContextTypes.DEFAULT_TY
         return await cancel_command(update, context)
 
     lang = get_user_lang(update, context)
+
+    if has_question_or_complaint_stop_words(text):
+        msg_map = {
+            "ru": (
+                "ℹ️ Сейчас включён режим создания/настройки астрологического профиля. "
+                "Для продолжения укажи имя человека (например, `Александр` или `Анна`).\n\n"
+                "Если ты хочешь задать вопрос астрологу о периодах или разобрать ситуацию — нажми кнопку ниже:"
+            ),
+            "en": (
+                "ℹ️ Profile creation mode is currently active. "
+                "To continue, please enter a name (e.g. `Alex` or `Anna`).\n\n"
+                "If you'd like to ask the astrologer a question about periods or chart details, tap below:"
+            ),
+            "it": (
+                "ℹ️ La modalità di creazione del profilo è attualmente attiva. "
+                "Per continuare, inserisci un nome (es. `Alessandro` o `Anna`).\n\n"
+                "Se vuoi fare una domanda all'astrologo sui periodi o sulla carta, premi sotto:"
+            ),
+        }
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(t("btn_ask_astrologer", lang), callback_data="nav_ask")],
+            [InlineKeyboardButton(t("btn_cancel_input", lang), callback_data="reset_cache_only")],
+        ])
+        await update.message.reply_text(
+            msg_map.get(lang, msg_map["en"]),
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+        return WAITING_PROFILE_NAME
+
     parsed = parse_one_line_profile(text)
     if parsed and parsed.get("is_complete"):
         name = parsed.get("name") or t("default_profile_name", lang)
@@ -1222,6 +1280,36 @@ async def chart_dob_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
         else (update.callback_query.from_user.id if update.callback_query else 0)
     )
     lang = get_user_lang(update, context)
+
+    if has_question_or_complaint_stop_words(text):
+        msg_map = {
+            "ru": (
+                "ℹ️ Сейчас бот ожидает дату рождения в формате `ДД.ММ.ГГГГ` (например: `20.06.1996`) "
+                "или полные данные одной строкой (`ДД.ММ.ГГГГ, ЧЧ:ММ, Город`).\n\n"
+                "Если ты хочешь задать вопрос астрологу о периодах или разобрать карту — используй кнопку ниже:"
+            ),
+            "en": (
+                "ℹ️ Currently expecting date of birth in `DD.MM.YYYY` format (e.g. `20.06.1996`) "
+                "or full details in one line (`DD.MM.YYYY, HH:MM, City`).\n\n"
+                "If you want to ask the astrologer a question about periods or charts, use the button below:"
+            ),
+            "it": (
+                "ℹ️ Il bot è in attesa della data di nascita nel formato `GG.MM.AAAA` (es. `20.06.1996`) "
+                "o dei dati completi in una riga (`GG.MM.AAAA, OO:MM, Città`).\n\n"
+                "Se vuoi fare una domanda all'astrologo sui periodi o sulla carta, usa il pulsante sotto:"
+            ),
+        }
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(t("btn_ask_astrologer", lang), callback_data="nav_ask")],
+            [InlineKeyboardButton(t("btn_cancel_input", lang), callback_data="reset_cache_only")],
+        ])
+        await update.message.reply_text(
+            msg_map.get(lang, msg_map["en"]),
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+        return WAITING_DOB
+
     editing_id = context.user_data.get("editing_profile_id")
 
     # Если пользователь хочет оставить текущую дату при редактировании:
@@ -3462,6 +3550,32 @@ async def fallback_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     parsed = parse_one_line_profile(text)
     if parsed and parsed.get("is_complete"):
         return await chart_one_line_direct(update, context)
+
+    # Если пользователь задаёт вопрос астрологу, обсуждает периоды или карту:
+    if has_question_or_complaint_stop_words(text) or "?" in text or any(k in text.lower() for k in ["гороскоп", "карта", "chart", "horoscope", "oroscopo"]):
+        discuss_msgs = {
+            "ru": (
+                "🔮 *Вопрос астрологу или разбор периодов*\n\n"
+                "Я заметил твой вопрос или комментарий. Чтобы получить персональный астрологический разбор текущих периодов (Даш), транзитов или натальной карты от ИИ-астролога, нажми кнопку ниже или используй команду /ask:"
+            ),
+            "en": (
+                "🔮 *Astrological Question & Period Analysis*\n\n"
+                "I noticed your question or inquiry. To get a personalized interpretation of your current periods (Dashas), transits, or birth chart from the AI Astrologer, tap the button below or use /ask:"
+            ),
+            "it": (
+                "🔮 *Domanda all'Astrologo o Analisi Periodi*\n\n"
+                "Ho notato la tua domanda o richiesta. Per ricevere un'interpretazione personalizzata dei tuoi periodi attuali (Dasha), transiti o tema natale dall'Astrologo IA, premi il pulsante sotto o usa /ask:"
+            ),
+        }
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(t("btn_ask_astrologer", lang), callback_data="nav_ask")],
+            [InlineKeyboardButton(t("btn_back_to_menu", lang), callback_data="nav_help")],
+        ])
+        return await update.effective_message.reply_text(
+            discuss_msgs.get(lang, discuss_msgs["en"]),
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
 
     fallback_msgs = {
         "ru": (

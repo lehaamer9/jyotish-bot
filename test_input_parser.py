@@ -198,6 +198,22 @@ class TestInputParser(unittest.TestCase):
         self.assertEqual(res_with_name2["name"], "Александр")
         self.assertEqual(res_with_name2["dob"], date(1996, 6, 20))
 
+    def test_discussive_and_error_queries_return_none(self):
+        queries = [
+            "бот сказал что сейчас период кончающийся в марте 2026",
+            "сейчас октябрь 2026",
+            "в боте ошибка даты",
+            "почему период марс",
+            "почему даша меркурий?",
+            "in march 2026 ended dasha",
+            "bot says period ends in october 2026",
+        ]
+        for q in queries:
+            self.assertIsNone(
+                parse_one_line_profile(q),
+                f"Expected None for discussive query: {q}"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

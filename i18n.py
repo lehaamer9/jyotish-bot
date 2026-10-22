@@ -1,8 +1,8 @@
 """
 Модуль интернационализации (i18n) и локализации для Джьотиш-Бота.
 Поддерживает три языка:
-- Русский (ru) — язык по умолчанию и фолбэк
-- Английский (en)
+- Русский (ru)
+- Английский (en) — язык по умолчанию и фолбэк для неподдерживаемых локалей
 - Итальянский (it)
 
 Обеспечивает автоматическое определение языка пользователя по клиенту Telegram,
@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any, List
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 
 SUPPORTED_LANGUAGES: List[str] = ["ru", "en", "it"]
-DEFAULT_LANGUAGE: str = "ru"
+DEFAULT_LANGUAGE: str = "en"
 
 LANGUAGE_LABELS: Dict[str, str] = {
     "ru": "🇷🇺 Русский",
@@ -27,7 +27,7 @@ LANGUAGE_LABELS: Dict[str, str] = {
 def normalize_language(lang_code: Optional[str]) -> str:
     """
     Нормализует код языка Telegram (например, 'it', 'it-IT', 'en-US', 'ru')
-    к поддерживаемым 'ru', 'en', 'it'. По умолчанию возвращает 'ru'.
+    к поддерживаемым 'ru', 'en', 'it'. По умолчанию возвращает 'en'.
     """
     if not lang_code or not isinstance(lang_code, str):
         return DEFAULT_LANGUAGE
@@ -53,7 +53,7 @@ def get_user_lang(
     Определяет язык пользователя по приоритету:
     1. Ручная настройка в БД (user_settings.language)
     2. Язык Telegram-клиента (update.effective_user.language_code)
-    3. Фолбэк по умолчанию ('ru')
+    3. Фолбэк по умолчанию ('en')
     """
     uid = user_id
     if uid is None and update and getattr(update, "effective_user", None):
@@ -461,6 +461,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "btn_active_format": "⭐️ {name} (выбран)",
         "btn_delete_format": "❌ Удалить «{name}»",
         "btn_clean_duplicates": "🧹 Очистить дубликаты",
+        "btn_ask_astrologer": "🔮 Задать вопрос (/ask)",
+        "btn_cancel_input": "❌ Отменить ввод",
+        "btn_back_to_menu": "🏠 Главное меню",
         "duplicates_cleaned": "✅ Удалено устаревших дубликатов: {count}. Активный профиль: «{name}».",
         "duplicates_none": "ℹ️ Дубликатов не найдено. Все профили уникальны.",
     },
@@ -720,6 +723,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "btn_active_format": "⭐️ {name} (selected)",
         "btn_delete_format": "❌ Delete '{name}'",
         "btn_clean_duplicates": "🧹 Clean Duplicates",
+        "btn_ask_astrologer": "🔮 Ask AI Astrologer (/ask)",
+        "btn_cancel_input": "❌ Cancel input",
+        "btn_back_to_menu": "🏠 Main Menu",
         "duplicates_cleaned": "✅ Removed {count} duplicate profiles. Active profile: '{name}'.",
         "duplicates_none": "ℹ️ No duplicate profiles found. All profiles are unique.",
     },
@@ -979,6 +985,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "btn_active_format": "⭐️ {name} (attivo)",
         "btn_delete_format": "❌ Elimina '{name}'",
         "btn_clean_duplicates": "🧹 Pulisci Duplicati",
+        "btn_ask_astrologer": "🔮 Fai una domanda (/ask)",
+        "btn_cancel_input": "❌ Annulla inserimento",
+        "btn_back_to_menu": "🏠 Menu principale",
         "duplicates_cleaned": "✅ Rimossi {count} profili duplicati. Profilo attivo: '{name}'.",
         "duplicates_none": "ℹ️ Nessun profilo duplicato trovato. Tutti i profili sono unici.",
     }
