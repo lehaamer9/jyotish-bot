@@ -33,11 +33,12 @@ def normalize_language(lang_code: Optional[str]) -> str:
         return DEFAULT_LANGUAGE
 
     code = lang_code.strip().lower().replace("_", "-")
-    if code.startswith("it"):
+    tag = code.split("-")[0]
+    if tag in ("it", "ita"):
         return "it"
-    elif code.startswith("en"):
+    elif tag in ("en", "eng"):
         return "en"
-    elif code.startswith(("ru", "be", "uk", "kk")):
+    elif tag in ("ru", "rus", "be", "bel", "uk", "ukr", "kk", "kaz"):
         return "ru"
 
     return DEFAULT_LANGUAGE
@@ -521,7 +522,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
         # Help
         "help_text": (
-            "📖 *Jyotish Bot User Guide:*\n\n"
+            "📖 *Vedic Astrology AI Guide:*\n\n"
             "🔹 /chart — Calculate natal chart (date, time, birthplace).\n"
             "🔹 /profile — Profile manager (switch active, view, delete).\n"
             "🔹 /newprofile — Create an additional profile (partner, relatives).\n"
@@ -783,7 +784,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
         # Help
         "help_text": (
-            "📖 *Guida di Jyotish Bot:*\n\n"
+            "📖 *Guida di Astrologia Vedica IA:*\n\n"
             "🔹 /chart — Calcolo tema natale (data, ora, luogo di nascita).\n"
             "🔹 /profile — Gestione profili (selezione attivo, visualizzazione, eliminazione).\n"
             "🔹 /newprofile — Crea un nuovo profilo (partner, parenti).\n"

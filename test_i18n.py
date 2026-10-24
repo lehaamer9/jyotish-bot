@@ -117,11 +117,15 @@ class TestI18nCore(unittest.TestCase):
         self.assertEqual(normalize_language(None), "en")
         self.assertEqual(normalize_language(123), "en")
         self.assertEqual(normalize_language("de"), "en")
+        self.assertEqual(normalize_language("de-DE"), "en")
         self.assertEqual(normalize_language("fr"), "en")
         self.assertEqual(normalize_language("es"), "en")
         self.assertEqual(normalize_language("zh"), "en")
+        self.assertEqual(normalize_language("zh-CN"), "en")
         self.assertEqual(normalize_language("ar"), "en")
         self.assertEqual(normalize_language("unknown"), "en")
+        self.assertEqual(normalize_language("ben"), "en")
+        self.assertEqual(normalize_language("rum"), "en")
 
     def test_t_function_translations_and_placeholders(self):
         # Test key existence across all 3 languages

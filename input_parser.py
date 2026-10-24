@@ -29,14 +29,14 @@ DISCUSSIVE_STOP_WORDS_RE = re.compile(
     r'\b(?:'
     r'в\s+боте|бот[а-яё]*|bot[s]?|'
     r'период[а-яё]*|period[s]?|periodo|periodi|'
-    r'даш[а-яё]*|dasha[s]?|махадаш[а-яё]*|антардаш[а-яё]*|mahadasha|antardasha|'
+    r'даш[а-яё]*|dasha[s]?|dasa[s]?|махадаш[а-яё]*|антардаш[а-яё]*|mahadasha|antardasha|'
     r'почему|зачем|why|perch[eé]|'
-    r'сейчас|adesso|'
+    r'сейчас|adesso|currently|attualmente|now|'
     r'кончающ[а-яё]*|закончил[а-яё]*|завершил[а-яё]*|заканчива[а-яё]*|ended|ends|terminat[a-z]*|'
-    r'сказал[а-яё]*|говорит|пишет|показывает|said|says|'
-    r'ошибк[а-яё]*\s+дат[а-яё]*|ошибк[а-яё]*\s+в\s+боте|'
-    r'в\s+марте\s+\d{4}|в\s+октябре\s+\d{4}|сейчас\s+октябрь|сейчас\s+март|'
-    r'in\s+march\s+\d{4}|in\s+october\s+\d{4}'
+    r'сказал[а-яё]*|говорит|пишет|показывает|said|says|dice|mostra|'
+    r'ошибк[а-яё]*|error[s]?|errore|errori|wrong|incorrect|sbagliat[oaie]|errat[oaie]|неправильн[а-яё]*|неверн[а-яё]*|баг[а-яё]*|bug[s]?|сбой[а-яё]*|'
+    r'март|марте|(?:(?:с|до|по|в|вплоть\s+до)\s+)?марта\s+\d{4}|march|marzo|'
+    r'октябр[а-яё]*|october|ottobre'
     r')\b',
     re.IGNORECASE
 )
@@ -117,9 +117,6 @@ def parse_one_line_profile(raw_text: str) -> Optional[Dict[str, Any]]:
     if not raw_text or not isinstance(raw_text, str):
         return None
 
-    if is_discussive_or_error_query(raw_text):
-        return None
-
     # Очистка команд и упоминаний бота
     text = re.sub(r"^/(?:chart|natal|newprofile|edit|recalc|editprofile|update|fix)\b\s*", "", raw_text.strip(), flags=re.IGNORECASE)
     text = re.sub(r"^@\w+\s*", "", text).strip()
@@ -137,7 +134,7 @@ def parse_one_line_profile(raw_text: str) -> Optional[Dict[str, Any]]:
         text,
         flags=re.IGNORECASE
     ).strip(" ,;:\t\n-")
-    if not text:
+    if not text or is_discussive_or_error_query(text):
         return None
 
     # Поиск даты: ДД.ММ.ГГГГ (разделители: точка, дефис, слэш)

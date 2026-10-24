@@ -6,8 +6,8 @@
 import os
 import json
 import asyncio
-from datetime import datetime
-from typing import Optional, Tuple
+from datetime import datetime, date
+from typing import Optional, Tuple, Union
 
 
 from i18n import normalize_language, get_planet_name
@@ -20,10 +20,12 @@ MONTH_NAMES = {
 }
 
 
-def format_current_date_str(dt: Optional[datetime] = None, lang: str = "ru") -> str:
+def format_current_date_str(dt: Optional[Union[datetime, date]] = None, lang: str = "ru") -> str:
     """Форматирует текущую дату на указанном языке без привязки к локали ОС."""
     if dt is None:
         dt = datetime.now()
+    elif isinstance(dt, date) and not isinstance(dt, datetime):
+        dt = datetime.combine(dt, datetime.min.time())
     norm_lang = normalize_language(lang)
     m_idx = dt.month - 1
     if norm_lang == "ru":
@@ -34,12 +36,16 @@ def format_current_date_str(dt: Optional[datetime] = None, lang: str = "ru") -> 
         return f"{MONTH_NAMES['en'][m_idx]} {dt.day}, {dt.year} ({dt.strftime('%d.%m.%Y')})"
 
 
-def format_current_dasha_info(chart_data: dict, dt: Optional[datetime] = None, lang: str = "ru") -> Tuple[str, str, str]:
+def format_current_dasha_info(chart_data: Optional[dict], dt: Optional[Union[datetime, date]] = None, lang: str = "ru") -> Tuple[str, str, str]:
     """
     Возвращает (dasha_info_str, md_name, ad_name) на указанном языке.
     """
     if dt is None:
         dt = datetime.now()
+    elif isinstance(dt, date) and not isinstance(dt, datetime):
+        dt = datetime.combine(dt, datetime.min.time())
+    if not chart_data or not isinstance(chart_data, dict):
+        chart_data = {}
     norm_lang = normalize_language(lang)
     curr_dasha = get_current_dasha(chart_data, dt)
     md = curr_dasha.get("maha_dasha")
@@ -609,7 +615,7 @@ class GeminiInterpreter:
         norm = normalize_language(lang)
         return JYOTISH_SYSTEM_PROMPTS.get(norm, JYOTISH_SYSTEM_PROMPTS["ru"])
 
-    async def interpret_chart(self, chart_data: dict, chart_summary: str, lang: str = "ru", now: Optional[datetime] = None) -> str:
+    async def interpret_chart(self, chart_data: dict, chart_summary: str, lang: str = "ru", now: Optional[Union[datetime, date]] = None) -> str:
         """Интерпретировать натальную карту."""
         lang = normalize_language(lang)
         if now is None:
@@ -627,7 +633,7 @@ class GeminiInterpreter:
         )
         return await self._generate(prompt, lang=lang)
 
-    async def interpret_dasha(self, chart_data: dict, chart_summary: str, lang: str = "ru", now: Optional[datetime] = None) -> str:
+    async def interpret_dasha(self, chart_data: dict, chart_summary: str, lang: str = "ru", now: Optional[Union[datetime, date]] = None) -> str:
         """Интерпретировать периоды Даша."""
         lang = normalize_language(lang)
         if now is None:
@@ -638,7 +644,7 @@ class GeminiInterpreter:
         template = DASHA_INTERPRETATION_PROMPTS.get(lang, DASHA_INTERPRETATION_PROMPT)
         prompt = template.format(
             chart_summary=chart_summary,
-            dasha_json=json.dumps(chart_data["dashas"], ensure_ascii=False, indent=2),
+            dasha_json=json.dumps((chart_data or {}).get("dashas", {}), ensure_ascii=False, indent=2),
             current_date_str=date_str,
             current_dasha_info=dasha_info,
         )
@@ -660,7 +666,7 @@ class GeminiInterpreter:
         return await self._generate(prompt, lang=lang)
 
     async def interpret_ask_question(self, chart_data: dict, chart_summary: str,
-                                      user_question: str, forecast_context: str = "", lang: str = "ru", now: Optional[datetime] = None) -> str:
+                                      user_question: str, forecast_context: str = "", lang: str = "ru", now: Optional[Union[datetime, date]] = None) -> str:
         """Ответить на свободный вопрос пользователя на основе его натальной карты и прогноза."""
         lang = normalize_language(lang)
         if now is None:

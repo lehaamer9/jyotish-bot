@@ -1071,67 +1071,86 @@ class TestProfilesIntegration(unittest.TestCase):
 
     def test_stop_words_in_profile_name_received_does_not_create_profile(self):
         import asyncio
-        update_mock = MagicMock()
-        update_mock.effective_user.id = self.user_id
-        update_mock.effective_user.language_code = "ru"
-        update_mock.message.text = "бот сказал что сейчас период кончающийся в марте 2026"
-        update_mock.message.reply_text = AsyncMock()
-        context_mock = MagicMock()
-        context_mock.user_data = {}
+        for stop_query in [
+            "бот сказал что сейчас период кончающийся в марте 2026",
+            "март 2026",
+            "октябрь 2026",
+            "ошибка",
+            "почему период марс",
+        ]:
+            update_mock = MagicMock()
+            update_mock.effective_user.id = self.user_id
+            update_mock.effective_user.language_code = "ru"
+            update_mock.message.text = stop_query
+            update_mock.message.reply_text = AsyncMock()
+            context_mock = MagicMock()
+            context_mock.user_data = {}
 
-        state = asyncio.run(bot.profile_name_received(update_mock, context_mock))
-        self.assertEqual(state, bot.WAITING_PROFILE_NAME)
-        self.assertIsNone(context_mock.user_data.get("temp_profile_name"))
-        self.assertTrue(update_mock.message.reply_text.called)
-        reply_text = update_mock.message.reply_text.call_args[0][0]
-        self.assertIn("режим создания/настройки", reply_text)
-        reply_markup = update_mock.message.reply_text.call_args[1].get("reply_markup")
-        self.assertIsNotNone(reply_markup)
-        buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
-        self.assertIn("nav_ask", buttons)
-        self.assertIn("reset_cache_only", buttons)
+            state = asyncio.run(bot.profile_name_received(update_mock, context_mock))
+            self.assertEqual(state, bot.WAITING_PROFILE_NAME, f"Failed for {stop_query}")
+            self.assertIsNone(context_mock.user_data.get("temp_profile_name"), f"Name saved for {stop_query}")
+            self.assertTrue(update_mock.message.reply_text.called)
+            reply_text = update_mock.message.reply_text.call_args[0][0]
+            self.assertIn("режим создания/настройки", reply_text)
+            reply_markup = update_mock.message.reply_text.call_args[1].get("reply_markup")
+            self.assertIsNotNone(reply_markup)
+            buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
+            self.assertIn("nav_ask", buttons)
+            self.assertIn("reset_cache_only", buttons)
 
     def test_stop_words_in_chart_dob_received_does_not_set_dob(self):
         import asyncio
-        update_mock = MagicMock()
-        update_mock.effective_user.id = self.user_id
-        update_mock.effective_user.language_code = "ru"
-        update_mock.message.text = "в боте ошибка даты"
-        update_mock.message.reply_text = AsyncMock()
-        context_mock = MagicMock()
-        context_mock.user_data = {"temp_profile_name": "Александр"}
+        for stop_query in [
+            "в боте ошибка даты",
+            "март 2026",
+            "октябрь 2026",
+            "ошибка",
+        ]:
+            update_mock = MagicMock()
+            update_mock.effective_user.id = self.user_id
+            update_mock.effective_user.language_code = "ru"
+            update_mock.message.text = stop_query
+            update_mock.message.reply_text = AsyncMock()
+            context_mock = MagicMock()
+            context_mock.user_data = {"temp_profile_name": "Александр"}
 
-        state = asyncio.run(bot.chart_dob_received(update_mock, context_mock))
-        self.assertEqual(state, bot.WAITING_DOB)
-        self.assertIsNone(context_mock.user_data.get("temp_dob"))
-        self.assertEqual(context_mock.user_data.get("temp_profile_name"), "Александр")
-        self.assertTrue(update_mock.message.reply_text.called)
-        reply_text = update_mock.message.reply_text.call_args[0][0]
-        self.assertIn("ожидает дату рождения", reply_text)
-        reply_markup = update_mock.message.reply_text.call_args[1].get("reply_markup")
-        self.assertIsNotNone(reply_markup)
-        buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
-        self.assertIn("nav_ask", buttons)
-        self.assertIn("reset_cache_only", buttons)
+            state = asyncio.run(bot.chart_dob_received(update_mock, context_mock))
+            self.assertEqual(state, bot.WAITING_DOB, f"Failed for {stop_query}")
+            self.assertIsNone(context_mock.user_data.get("temp_dob"))
+            self.assertEqual(context_mock.user_data.get("temp_profile_name"), "Александр")
+            self.assertTrue(update_mock.message.reply_text.called)
+            reply_text = update_mock.message.reply_text.call_args[0][0]
+            self.assertIn("ожидает дату рождения", reply_text)
+            reply_markup = update_mock.message.reply_text.call_args[1].get("reply_markup")
+            self.assertIsNotNone(reply_markup)
+            buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
+            self.assertIn("nav_ask", buttons)
+            self.assertIn("reset_cache_only", buttons)
 
     def test_discussive_message_in_fallback_text_handler(self):
         import asyncio
-        update_mock = MagicMock()
-        update_mock.effective_user.id = self.user_id
-        update_mock.effective_user.language_code = "ru"
-        update_mock.message.text = "почему сейчас период марс?"
-        update_mock.effective_message.reply_text = AsyncMock()
-        context_mock = MagicMock()
-        context_mock.user_data = {}
+        for discuss_query in [
+            "почему сейчас период марс?",
+            "март 2026",
+            "октябрь 2026",
+            "в боте ошибка даты",
+        ]:
+            update_mock = MagicMock()
+            update_mock.effective_user.id = self.user_id
+            update_mock.effective_user.language_code = "ru"
+            update_mock.message.text = discuss_query
+            update_mock.effective_message.reply_text = AsyncMock()
+            context_mock = MagicMock()
+            context_mock.user_data = {}
 
-        asyncio.run(bot.fallback_text_handler(update_mock, context_mock))
-        self.assertTrue(update_mock.effective_message.reply_text.called)
-        reply_text = update_mock.effective_message.reply_text.call_args[0][0]
-        self.assertIn("Вопрос астрологу или разбор периодов", reply_text)
-        reply_markup = update_mock.effective_message.reply_text.call_args[1].get("reply_markup")
-        self.assertIsNotNone(reply_markup)
-        buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
-        self.assertIn("nav_ask", buttons)
+            asyncio.run(bot.fallback_text_handler(update_mock, context_mock))
+            self.assertTrue(update_mock.effective_message.reply_text.called)
+            reply_text = update_mock.effective_message.reply_text.call_args[0][0]
+            self.assertIn("Вопрос астрологу или разбор периодов", reply_text)
+            reply_markup = update_mock.effective_message.reply_text.call_args[1].get("reply_markup")
+            self.assertIsNotNone(reply_markup)
+            buttons = [btn.callback_data for row in reply_markup.inline_keyboard for btn in row]
+            self.assertIn("nav_ask", buttons)
 
 
 if __name__ == "__main__":

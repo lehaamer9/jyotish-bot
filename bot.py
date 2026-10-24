@@ -156,15 +156,15 @@ QUESTION_OR_COMPLAINT_STOP_WORDS_RE = re.compile(
     r'\b(?:'
     r'в\s+боте|бот[а-яё]*|bot[s]?|'
     r'период[а-яё]*|period[s]?|periodo|periodi|'
-    r'даш[а-яё]*|dasha[s]?|махадаш[а-яё]*|антардаш[а-яё]*|mahadasha|antardasha|'
+    r'даш[а-яё]*|dasha[s]?|dasa[s]?|махадаш[а-яё]*|антардаш[а-яё]*|mahadasha|antardasha|'
     r'почему|зачем|когда|как|что|why|what|when|how|perch[eé]|quando|come|cosa|'
-    r'сейчас|adesso|current|attualmente|'
+    r'сейчас|adesso|current|attualmente|now|'
     r'кончающ[а-яё]*|закончил[а-яё]*|завершил[а-яё]*|заканчива[а-яё]*|ended|ends|terminat[a-z]*|'
-    r'сказал[а-яё]*|говорит|пишет|показывает|said|says|'
-    r'ошибк[а-яё]*|error[s]?|errore|errori|wrong|incorrect|sbagliat[oaie]|неправильн[а-яё]*|неверн[а-яё]*|'
-    r'жалоб[а-яё]*|претензи[а-яё]*|проблем[а-яё]*|problem[s]?|issue[s]?|'
-    r'в\s+марте\s+\d{4}|в\s+октябре\s+\d{4}|сейчас\s+октябрь|сейчас\s+март|'
-    r'in\s+march\s+\d{4}|in\s+october\s+\d{4}'
+    r'сказал[а-яё]*|говорит|пишет|показывает|said|says|dice|mostra|'
+    r'ошибк[а-яё]*|error[s]?|errore|errori|wrong|incorrect|sbagliat[oaie]|errat[oaie]|неправильн[а-яё]*|неверн[а-яё]*|'
+    r'жалоб[а-яё]*|претензи[а-яё]*|проблем[а-яё]*|problem[s]?|issue[s]?|баг[а-яё]*|bug[s]?|сбой[а-яё]*|'
+    r'март|марте|(?:(?:с|до|по|в|вплоть\s+до)\s+)?марта\s+\d{4}|march|marzo|'
+    r'октябр[а-яё]*|october|ottobre'
     r')\b',
     re.IGNORECASE
 )
@@ -3017,6 +3017,11 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена текущего ввода и возврат к главному меню."""
+    if update.callback_query:
+        try:
+            await update.callback_query.answer()
+        except Exception:
+            pass
     lang = get_user_lang(update, context)
     if context.user_data:
         context.user_data.pop("temp_dob", None)
@@ -3432,6 +3437,65 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning(f"Не удалось зарегистрировать команды меню Telegram: {e}")
 
+    # Регистрация понятных мультиязычных названий и описаний бота
+    try:
+        # Названия бота (до 64 символов)
+        await application.bot.set_my_name("Vedic Astrology AI | Natal Chart")
+        await application.bot.set_my_name("Vedic Astrology AI | Natal Chart", language_code="en")
+        await application.bot.set_my_name("Astrologia Vedica IA | Tema Natale", language_code="it")
+        await application.bot.set_my_name("Ведическая Астрология ИИ | Натальная карта", language_code="ru")
+
+        # Краткие описания (до 120 символов)
+        short_en = "Personal AI Vedic Astrologer: accurate birth chart, planetary life periods, compatibility & life forecasts."
+        short_it = "Il tuo astrologo vedico IA personale: tema natale, periodi planetari, compatibilità di coppia e previsioni."
+        short_ru = "Персональный ИИ-астролог: точная натальная карта, периоды жизни (Даша), совместимость и ответы на вопросы."
+        await application.bot.set_my_short_description(short_en)
+        await application.bot.set_my_short_description(short_en, language_code="en")
+        await application.bot.set_my_short_description(short_it, language_code="it")
+        await application.bot.set_my_short_description(short_ru, language_code="ru")
+
+        # Подробные описания (до 512 символов)
+        desc_en = (
+            "🔮 Welcome to Vedic Astrology AI!\n\n"
+            "Discover the ancient wisdom of Vedic Astrology powered by artificial intelligence:\n\n"
+            "• Accurate Natal Chart & Planetary Positions\n"
+            "• Planetary Life Periods (Vimshottari Dasha)\n"
+            "• Saturn Transit (Sade-Sati) Analysis\n"
+            "• Relationship Compatibility & Synastry\n"
+            "• Wealth, Career & Soul Karmic Task\n"
+            "• Ask personal questions to AI Astrologer\n\n"
+            "Tap /start to begin!"
+        )
+        desc_it = (
+            "🔮 Benvenuto in Astrologia Vedica IA!\n\n"
+            "Scopri l'antica saggezza dell'Astrologia Vedica potenziata dall'intelligenza artificiale:\n\n"
+            "• Calcolo accurato del Tema Natale e pianeti\n"
+            "• Periodi planetari della vita (Vimshottari Dasha)\n"
+            "• Transito di Saturno (Sade-Sati)\n"
+            "• Compatibilità di coppia e sinastria\n"
+            "• Finanze, carriera e compito karmico dell'anima\n"
+            "• Domande libere all'Astrologo IA\n\n"
+            "Premi /start per iniziare!"
+        )
+        desc_ru = (
+            "🔮 Добро пожаловать в Ведическую Астрологию ИИ!\n\n"
+            "Древняя мудрость ведической астрологии на базе искусственного интеллекта:\n\n"
+            "• Точный расчёт натальной карты и положения планет\n"
+            "• Периоды жизни (Вимшоттари Даша)\n"
+            "• Анализ транзита Сатурна (Саде-Сати)\n"
+            "• Совместимость партнёров (синастрия)\n"
+            "• Финансы, карьера и кармическая задача души\n"
+            "• Личные вопросы ИИ-астрологу\n\n"
+            "Нажми /start, чтобы начать!"
+        )
+        await application.bot.set_my_description(desc_en)
+        await application.bot.set_my_description(desc_en, language_code="en")
+        await application.bot.set_my_description(desc_it, language_code="it")
+        await application.bot.set_my_description(desc_ru, language_code="ru")
+        logger.info("Мультиязычные названия и описания бота успешно зарегистрированы!")
+    except Exception as e:
+        logger.warning(f"Не удалось обновить названия и описания бота в Telegram: {e}")
+
     # Уведомление администратора при запуске на облачном сервере Render
     render_url = os.getenv("RENDER_EXTERNAL_URL")
     if render_url:
@@ -3675,6 +3739,7 @@ def main():
     common_fallbacks = [
         CommandHandler("cancel", cancel_command),
         MessageHandler(filters.Regex(CANCEL_REGEX_PATTERN), cancel_command),
+        CallbackQueryHandler(cancel_command, pattern=r"^(?:cancel_conv|reset_cache_only)$"),
     ]
 
     # ConversationHandler для натальной карты

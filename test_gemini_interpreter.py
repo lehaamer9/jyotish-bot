@@ -107,6 +107,29 @@ class TestGeminiInterpreter(unittest.TestCase):
             self.assertIn(date_str, ask_prompt)
             self.assertIn(dasha_info, ask_prompt)
 
+    def test_active_dasha_with_date_object(self):
+        from datetime import date
+        target_date = date(2026, 10, 22)
+        curr = get_current_dasha(self.chart, target_date)
+        self.assertEqual(curr["maha_dasha"]["planet"], "Saturn")
+        self.assertEqual(curr["antar_dasha"]["planet"], "Mars")
+
+        dasha_info, md, ad = format_current_dasha_info(self.chart, target_date, lang="ru")
+        self.assertIn("Сатурн", dasha_info)
+        self.assertIn("Марс", dasha_info)
+
+    def test_format_current_dasha_info_with_none_or_empty_chart(self):
+        dasha_info_none, md_none, ad_none = format_current_dasha_info(None, None, lang="ru")
+        self.assertEqual(dasha_info_none, "Текущий период не определён")
+        self.assertEqual(md_none, "Не определена")
+        self.assertEqual(ad_none, "Не определена")
+
+        dasha_info_empty, md_empty, ad_empty = format_current_dasha_info({}, None, lang="en")
+        self.assertEqual(dasha_info_empty, "Current period not defined")
+        self.assertEqual(md_empty, "Not defined")
+        self.assertEqual(ad_empty, "Not defined")
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -2,8 +2,8 @@
 Расчётный движок ведической астрологии (Джьотиш).
 Обёртка над jyotishganit для использования в Telegram-боте.
 """
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, date
+from typing import Optional, Union
 from jyotishganit import calculate_birth_chart, get_birth_chart_json_string
 import json
 from i18n import (
@@ -171,10 +171,12 @@ def _extract_ashtakavarga(av) -> Optional[dict]:
         return None
 
 
-def get_current_dasha(dashas_or_chart: dict, now: Optional[datetime] = None) -> dict:
+def get_current_dasha(dashas_or_chart: dict, now: Optional[Union[datetime, date]] = None) -> dict:
     """Определить текущий период Маха-Даша и Антар-Даша."""
     if now is None:
         now = datetime.now()
+    elif isinstance(now, date) and not isinstance(now, datetime):
+        now = datetime.combine(now, datetime.min.time())
 
     dashas = dashas_or_chart.get("dashas", dashas_or_chart) if isinstance(dashas_or_chart, dict) else {}
     current = {"maha_dasha": None, "antar_dasha": None}

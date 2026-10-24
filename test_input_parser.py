@@ -207,12 +207,26 @@ class TestInputParser(unittest.TestCase):
             "почему даша меркурий?",
             "in march 2026 ended dasha",
             "bot says period ends in october 2026",
+            "март 2026",
+            "октябрь 2026",
+            "март 2026 28.08.1998 12:00 Москва",
+            "октябрь 2026 28.08.1998 12:00 Москва",
+            "в боте ошибка в дате",
+            "в боте ошибка 28.08.1998",
+            "errore nel bot nella data",
+            "perché adesso periodo marte?",
         ]
         for q in queries:
             self.assertIsNone(
                 parse_one_line_profile(q),
                 f"Expected None for discussive query: {q}"
             )
+
+        # Legitimate name "Марта" should NOT be blocked
+        marta_profile = parse_one_line_profile("Марта, 20.06.1996, 12:00, Москва")
+        self.assertIsNotNone(marta_profile)
+        self.assertEqual(marta_profile["name"], "Марта")
+        self.assertEqual(marta_profile["dob"], date(1996, 6, 20))
 
 
 if __name__ == "__main__":
